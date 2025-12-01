@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -143,6 +144,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 
 		rayJob := testingrayjob.MakeJob("rayjob", ns.Name).
 			Queue(localQueueName).
+			AddAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").

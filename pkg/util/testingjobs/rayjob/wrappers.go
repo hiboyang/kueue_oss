@@ -294,3 +294,13 @@ func (j *JobWrapper) ManagedBy(c string) *JobWrapper {
 	j.Spec.ManagedBy = &c
 	return j
 }
+
+func (j *JobWrapper) AddAnnotation(key string, value string) *JobWrapper {
+	annotations := j.Annotations
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[key] = value
+	j.Annotations = annotations
+	return j
+}
