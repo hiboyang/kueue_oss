@@ -17,6 +17,8 @@ limitations under the License.
 package e2e
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -173,6 +175,28 @@ var _ = ginkgo.Describe("Kuberay", func() {
 
 		ginkgo.By("Creating the rayJob", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
+			// List all RayJobs in the namespace
+			rayJobList := &rayv1.RayJobList{}
+			gomega.Expect(k8sClient.List(ctx, rayJobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d RayJobs in namespace %s:\n", len(rayJobList.Items), ns.Name)
+			for i, rj := range rayJobList.Items {
+				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rj.Name, rj.UID, rj.Annotations)
+			}
+
+			// List all Workloads in the namespace
+			workloadList := &kueue.WorkloadList{}
+			gomega.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d Workloads in namespace %s:\n", len(workloadList.Items), ns.Name)
+			for i, wl := range workloadList.Items {
+				fmt.Printf("  [%d] Name: %s, OwnerReferences: %v\n", i, wl.Name, wl.OwnerReferences)
+			}
+
+			// Print the expected workload name
+			fmt.Printf("DEBUG: Expected workload name: %s\n", workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID))
+			fmt.Printf("DEBUG: RayJob Name: %s, UID: %s\n", rayJob.Name, rayJob.UID)
 		})
 
 		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID), Namespace: ns.Name}
