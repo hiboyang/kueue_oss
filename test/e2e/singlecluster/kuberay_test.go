@@ -206,6 +206,41 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			fmt.Printf("DEBUG: RayJob Name: %s, UID: %s\n", rayJob.Name, rayJob.UID)
 		})
 
+		ginkgo.By("DEBUG: Getting Kueue controller pod logs", func() {
+			// List all pods in kueue-system namespace
+			podList := &corev1.PodList{}
+			kueueNamespace := "kueue-system"
+			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(kueueNamespace))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), kueueNamespace)
+
+			// Print logs for each kueue controller pod
+			for _, pod := range podList.Items {
+				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
+					fmt.Printf("\n=== DEBUG: Logs for pod %s in namespace %s ===\n", pod.Name, kueueNamespace)
+
+					// Get logs for each container in the pod
+					for _, container := range pod.Spec.Containers {
+						fmt.Printf("\n--- Container: %s ---\n", container.Name)
+
+						// Get pod logs using kubectl (since client-go's pod log API is more complex)
+						logOptions := &corev1.PodLogOptions{
+							Container: container.Name,
+							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
+						}
+
+						req := util.GetClientSet().CoreV1().Pods(kueueNamespace).GetLogs(pod.Name, logOptions)
+						logs, err := req.DoRaw(ctx)
+						if err != nil {
+							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
+							continue
+						}
+						fmt.Printf("%s\n", string(logs))
+					}
+					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
+				}
+			}
+		})
+
 		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID), Namespace: ns.Name}
 		createdWorkload := &kueue.Workload{}
 		ginkgo.By("Checking workload is created", func() {
