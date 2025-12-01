@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -175,6 +176,12 @@ var _ = ginkgo.Describe("Kuberay", func() {
 
 		ginkgo.By("Creating the rayJob", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Sleeping 60 seconds before listing resources", func() {
+			fmt.Println("DEBUG: Sleeping for 60 seconds to allow workload creation...")
+			time.Sleep(60 * time.Second)
+			fmt.Println("DEBUG: Sleep complete, now listing resources")
 		})
 
 		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
