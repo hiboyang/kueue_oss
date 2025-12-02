@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		rayJob := testingrayjob.MakeJob("rayjob-autoscaling", ns.Name).
 			Queue(localQueueName).
 			AddAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			EnableInTreeAutoscaling().
+			//EnableInTreeAutoscaling().
 			WithSubmissionMode(rayv1.K8sJobMode).
 			Entrypoint("python -c \"import ray; ray.init(); print(ray.cluster_resources())\"").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
