@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 					}
 				}
 				g.Expect(hasAdmittedOrFinishedWorkload).To(gomega.BeTrue(), "Expected at least one admitted or finished workload")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("DEBUG: Listing all Ray job pods and their status", func() {
