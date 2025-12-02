@@ -266,6 +266,69 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
+	ginkgo.By("DEBUG: Listing all Ray job pods and their status", func() {
+		// List all pods in the test namespace
+		podList := &corev1.PodList{}
+		gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+		fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), ns.Name)
+		for i, pod := range podList.Items {
+			fmt.Printf("  [%d] Name: %s, Phase: %s, Status: %+v\n", i, pod.Name, pod.Status.Phase, pod.Status.Conditions)
+		}
+	})
+
+	ginkgo.By("DEBUG: Getting Kuberay operator pod logs", func() {
+		// Create a Kubernetes clientset
+		clientset, err := kubernetes.NewForConfig(cfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Try common kuberay operator namespaces
+		kuberayNamespaces := []string{"ray-system", "kuberay-operator-system", "kuberay-system"}
+
+		for _, kuberayNamespace := range kuberayNamespaces {
+			// List all pods in kuberay namespace
+			podList := &corev1.PodList{}
+			err := k8sClient.List(ctx, podList, client.InNamespace(kuberayNamespace))
+			if err \!= nil {
+				fmt.Printf("DEBUG: Namespace %s not found or error: %v\n", kuberayNamespace, err)
+				continue
+			}
+
+			if len(podList.Items) == 0 {
+				fmt.Printf("DEBUG: No pods found in namespace %s\n", kuberayNamespace)
+				continue
+			}
+
+			fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), kuberayNamespace)
+
+			// Print logs for each kuberay operator pod
+			for _, pod := range podList.Items {
+				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
+					fmt.Printf("\n=== DEBUG: Logs for pod %s in namespace %s ===\n", pod.Name, kuberayNamespace)
+
+					// Get logs for each container in the pod
+					for _, container := range pod.Spec.Containers {
+						fmt.Printf("\n--- Container: %s ---\n", container.Name)
+
+						// Get pod logs
+						logOptions := &corev1.PodLogOptions{
+							Container: container.Name,
+							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
+						}
+
+						req := clientset.CoreV1().Pods(kuberayNamespace).GetLogs(pod.Name, logOptions)
+						logs, err := req.DoRaw(ctx)
+						if err \!= nil {
+							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
+							continue
+						}
+						fmt.Printf("%s\n", string(logs))
+					}
+					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
+				}
+			}
+		}
+	})
+
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayJob := &rayv1.RayJob{}
