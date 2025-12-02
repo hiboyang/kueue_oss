@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 	"strings"
+	"time"
 )
 
 var _ = ginkgo.Describe("Kuberay", func() {
@@ -185,6 +186,73 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		//	time.Sleep(60 * time.Second)
 		//	fmt.Println("DEBUG: Sleep complete, now listing resources")
 		//})
+
+		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
+			// List all RayJobs in the namespace
+			rayJobList := &rayv1.RayJobList{}
+			gomega.Expect(k8sClient.List(ctx, rayJobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d RayJobs in namespace %s:\n", len(rayJobList.Items), ns.Name)
+			for i, rj := range rayJobList.Items {
+				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rj.Name, rj.UID, rj.Annotations)
+			}
+
+			// List all Workloads in the namespace
+			workloadList := &kueue.WorkloadList{}
+			gomega.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d Workloads in namespace %s:\n", len(workloadList.Items), ns.Name)
+			for i, wl := range workloadList.Items {
+				fmt.Printf("  [%d] Name: %s, OwnerReferences: %v\n", i, wl.Name, wl.OwnerReferences)
+			}
+
+			// Print the expected workload name
+			fmt.Printf("DEBUG: Expected workload name: %s\n", jobframework.GetWorkloadNameForOwnerWithGVK(rayJob.Name, rayJob.UID, rayv1.GroupVersion.WithKind("RayJob")))
+			fmt.Printf("DEBUG: RayJob Name: %s, UID: %s\n", rayJob.Name, rayJob.UID)
+		})
+
+		ginkgo.By("DEBUG: Getting Kueue controller pod logs", func() {
+			// Create a Kubernetes clientset
+			clientset, err := kubernetes.NewForConfig(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// List all pods in kueue-system namespace
+			podList := &corev1.PodList{}
+			kueueNamespace := "kueue-system"
+			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(kueueNamespace))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), kueueNamespace)
+
+			// Print logs for each kueue controller pod
+			for _, pod := range podList.Items {
+				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
+					fmt.Printf("\n=== DEBUG: Logs for pod %s in namespace %s ===\n", pod.Name, kueueNamespace)
+
+					// Get logs for each container in the pod
+					for _, container := range pod.Spec.Containers {
+						fmt.Printf("\n--- Container: %s ---\n", container.Name)
+
+						// Get pod logs
+						logOptions := &corev1.PodLogOptions{
+							Container: container.Name,
+							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
+						}
+
+						req := clientset.CoreV1().Pods(kueueNamespace).GetLogs(pod.Name, logOptions)
+						logs, err := req.DoRaw(ctx)
+						if err != nil {
+							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
+							continue
+						}
+						fmt.Printf("%s\n", string(logs))
+					}
+					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
+				}
+			}
+		})
+
+		ginkgo.By("Sleeping 120 seconds before listing resources", func() {
+			fmt.Println("DEBUG: Sleeping for 120 seconds to allow workload creation...")
+			time.Sleep(120 * time.Second)
+			fmt.Println("DEBUG: Sleep complete, now listing resources")
+		})
 
 		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
 			// List all RayJobs in the namespace
