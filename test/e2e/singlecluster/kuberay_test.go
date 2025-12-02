@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"fmt"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -203,7 +204,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			}
 
 			// Print the expected workload name
-			fmt.Printf("DEBUG: Expected workload name: %s\n", workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID))
+			fmt.Printf("DEBUG: Expected workload name: %s\n", jobframework.GetWorkloadNameForOwnerWithGVK(rayJob.Name, rayJob.UID, rayv1.GroupVersion.WithKind("RayJob")))
 			fmt.Printf("DEBUG: RayJob Name: %s, UID: %s\n", rayJob.Name, rayJob.UID)
 		})
 
@@ -246,7 +247,8 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			}
 		})
 
-		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayJob.Name, rayJob.UID), Namespace: ns.Name}
+		wlName := jobframework.GetWorkloadNameForOwnerWithGVK(rayJob.Name, rayJob.UID, rayv1.GroupVersion.WithKind("RayJob"))
+		wlLookupKey := types.NamespacedName{Name: wlName, Namespace: ns.Name}
 		createdWorkload := &kueue.Workload{}
 		ginkgo.By("Checking workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
