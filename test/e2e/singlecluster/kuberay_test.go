@@ -18,26 +18,24 @@ package e2e
 
 import (
 	"fmt"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"strings"
-	"time"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util"
+	"strings"
 )
 
 var _ = ginkgo.Describe("Kuberay", func() {
@@ -181,11 +179,11 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Sleeping 180 seconds before listing resources", func() {
-			fmt.Println("DEBUG: Sleeping for 180 seconds to allow workload creation...")
-			time.Sleep(180 * time.Second)
-			fmt.Println("DEBUG: Sleep complete, now listing resources")
-		})
+		//ginkgo.By("Sleeping 180 seconds before listing resources", func() {
+		//	fmt.Println("DEBUG: Sleeping for 180 seconds to allow workload creation...")
+		//	time.Sleep(180 * time.Second)
+		//	fmt.Println("DEBUG: Sleep complete, now listing resources")
+		//})
 
 		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
 			// List all RayJobs in the namespace
