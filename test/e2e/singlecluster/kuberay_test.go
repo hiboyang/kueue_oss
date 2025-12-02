@@ -183,9 +183,9 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Sleeping 60 seconds before listing resources", func() {
-			fmt.Println("DEBUG: Sleeping for 60 seconds to allow workload creation...")
-			time.Sleep(60 * time.Second)
+		ginkgo.By("Sleeping 180 seconds before listing resources", func() {
+			fmt.Println("DEBUG: Sleeping for 180 seconds to allow workload creation...")
+			time.Sleep(180 * time.Second)
 			fmt.Println("DEBUG: Sleep complete, now listing resources")
 		})
 
