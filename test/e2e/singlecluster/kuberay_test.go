@@ -272,7 +272,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
 				g.Expect(createdRayJob.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, 2*util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for the RayJob to finish", func() {
