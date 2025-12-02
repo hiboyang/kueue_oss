@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
@@ -207,6 +208,10 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		})
 
 		ginkgo.By("DEBUG: Getting Kueue controller pod logs", func() {
+			// Create a Kubernetes clientset
+			clientset, err := kubernetes.NewForConfig(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 			// List all pods in kueue-system namespace
 			podList := &corev1.PodList{}
 			kueueNamespace := "kueue-system"
@@ -222,13 +227,13 @@ var _ = ginkgo.Describe("Kuberay", func() {
 					for _, container := range pod.Spec.Containers {
 						fmt.Printf("\n--- Container: %s ---\n", container.Name)
 
-						// Get pod logs using kubectl (since client-go's pod log API is more complex)
+						// Get pod logs
 						logOptions := &corev1.PodLogOptions{
 							Container: container.Name,
 							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
 						}
 
-						req := util.GetClientSet().CoreV1().Pods(kueueNamespace).GetLogs(pod.Name, logOptions)
+						req := clientset.CoreV1().Pods(kueueNamespace).GetLogs(pod.Name, logOptions)
 						logs, err := req.DoRaw(ctx)
 						if err != nil {
 							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
