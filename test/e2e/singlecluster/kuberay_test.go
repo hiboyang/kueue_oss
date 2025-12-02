@@ -20,6 +20,7 @@ import (
 	"fmt"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"strings"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -267,12 +268,53 @@ var _ = ginkgo.Describe("Kuberay", func() {
 		})
 
 		ginkgo.By("DEBUG: Listing all Ray job pods and their status", func() {
-			// List all pods in the test namespace
-			podList := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), ns.Name)
-			for i, pod := range podList.Items {
-				fmt.Printf("  [%d] Name: %s, Phase: %s, Status: %+v\n", i, pod.Name, pod.Status.Phase, pod.Status.Conditions)
+			// Create a Kubernetes clientset
+			clientset, err := kubernetes.NewForConfig(cfg)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// List all pods in all namespaces
+			allPodList := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, allPodList)).To(gomega.Succeed())
+
+			// Filter pods whose name contains 'ray'
+			var rayPods []corev1.Pod
+			for _, pod := range allPodList.Items {
+				if strings.Contains(pod.Name, "ray") {
+					rayPods = append(rayPods, pod)
+				}
+			}
+
+			fmt.Printf("DEBUG: Found %d ray pods across all namespaces:\n", len(rayPods))
+			for i, pod := range rayPods {
+				fmt.Printf("  [%d] Namespace: %s, Name: %s, Phase: %s, Status: %+v\n",
+					i, pod.Namespace, pod.Name, pod.Status.Phase, pod.Status.Conditions)
+			}
+
+			// Get logs for each ray pod
+			for _, pod := range rayPods {
+				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
+					fmt.Printf("\n=== DEBUG: Logs for ray pod %s in namespace %s ===\n", pod.Name, pod.Namespace)
+
+					// Get logs for each container in the pod
+					for _, container := range pod.Spec.Containers {
+						fmt.Printf("\n--- Container: %s ---\n", container.Name)
+
+						// Get pod logs
+						logOptions := &corev1.PodLogOptions{
+							Container: container.Name,
+							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
+						}
+
+						req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOptions)
+						logs, err := req.DoRaw(ctx)
+						if err != nil {
+							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
+							continue
+						}
+						fmt.Printf("%s\n", string(logs))
+					}
+					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
+				}
 			}
 		})
 
