@@ -304,3 +304,15 @@ func (j *JobWrapper) AddAnnotation(key string, value string) *JobWrapper {
 	j.Annotations = annotations
 	return j
 }
+
+func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
+	enable := true
+	aggressive := rayv1.UpscalingMode("Aggressive")
+	idleTimeoutSeconds := int32(10)
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = &enable
+	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		UpscalingMode:      &aggressive,
+		IdleTimeoutSeconds: &idleTimeoutSeconds,
+	}
+	return j
+}
