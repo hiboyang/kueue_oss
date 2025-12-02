@@ -22,6 +22,7 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
@@ -246,7 +247,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			}
 		})
 
-		/*ginkgo.By("Checking at least one workload is created and admitted or finished", func() {
+		ginkgo.By("Checking at least one workload is created and admitted or finished", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
@@ -262,7 +263,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				}
 				g.Expect(hasAdmittedOrFinishedWorkload).To(gomega.BeTrue(), "Expected at least one admitted or finished workload")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})*/
+		})
 
 		ginkgo.By("DEBUG: Listing all Ray job pods and their status", func() {
 			// Create a Kubernetes clientset
