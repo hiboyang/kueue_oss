@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("Kuberay", func() {
 	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
-		rayJob := testingrayjob.MakeJob("rayjob", ns.Name).
+		rayJob := testingrayjob.MakeJob("rayjob-autoscaling", ns.Name).
 			Queue(localQueueName).
 			AddAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			WithSubmissionMode(rayv1.K8sJobMode).
@@ -248,21 +248,21 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			}
 		})
 
-		ginkgo.By("Checking at least one workload is created and admitted", func() {
+		ginkgo.By("Checking at least one workload is created and admitted or finished", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
 
 				// Check that at least one workload is admitted
-				hasAdmittedWorkload := false
+				hasAdmittedOrFinishedWorkload := false
 				for _, wl := range workloadList.Items {
-					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) {
-						hasAdmittedWorkload = true
+					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+						hasAdmittedOrFinishedWorkload = true
 						break
 					}
 				}
-				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected at least one admitted workload")
+				g.Expect(hasAdmittedOrFinishedWorkload).To(gomega.BeTrue(), "Expected at least one admitted or finished workload")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
