@@ -253,6 +253,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
 
+	log.V(10).Info("Reconciling job")
+
 	defer func() {
 		err = r.ignoreUnretryableError(log, err)
 	}()
