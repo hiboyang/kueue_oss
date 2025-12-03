@@ -17,7 +17,6 @@ limitations under the License.
 package e2e
 
 import (
-	"fmt"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -25,10 +24,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta1"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/util/testing"
@@ -36,8 +33,6 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
-	"sigs.k8s.io/yaml"
-	"strings"
 )
 
 var _ = ginkgo.Describe("Kuberay", func() {
@@ -181,163 +176,15 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		//ginkgo.By("Sleeping 180 seconds before listing resources", func() {
-		//	fmt.Println("DEBUG: Sleeping for 180 seconds to allow workload creation...")
-		//	time.Sleep(180 * time.Second)
-		//	fmt.Println("DEBUG: Sleep complete, now listing resources")
-		//})
-
-		ginkgo.By("DEBUG: Listing all RayJobs, RayClusters and Workloads", func() {
-			// List all RayJobs in the namespace
-			rayJobList := &rayv1.RayJobList{}
-			gomega.Expect(k8sClient.List(ctx, rayJobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d RayJobs in namespace %s:\n", len(rayJobList.Items), ns.Name)
-			for i, rj := range rayJobList.Items {
-				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rj.Name, rj.UID, rj.Annotations)
-				// Print RayJob YAML
-				rayJobYAML, err := yaml.Marshal(&rj)
-				if err != nil {
-					fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
-				} else {
-					fmt.Printf("\n--- RayJob YAML [%d] ---\n%s\n", i, string(rayJobYAML))
-				}
-			}
-
-			// List all RayClusters in the namespace
-			rayClusterList := &rayv1.RayClusterList{}
-			gomega.Expect(k8sClient.List(ctx, rayClusterList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d RayClusters in namespace %s:\n", len(rayClusterList.Items), ns.Name)
-			for i, rc := range rayClusterList.Items {
-				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rc.Name, rc.UID, rc.Annotations)
-				// Print RayCluster YAML
-				rayClusterYAML, err := yaml.Marshal(&rc)
-				if err != nil {
-					fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
-				} else {
-					fmt.Printf("\n--- RayCluster YAML [%d] ---\n%s\n", i, string(rayClusterYAML))
-				}
-			}
-
-			// List all Workloads in the namespace
-			workloadList := &kueue.WorkloadList{}
-			gomega.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d Workloads in namespace %s:\n", len(workloadList.Items), ns.Name)
-			for i, wl := range workloadList.Items {
-				fmt.Printf("  [%d] Name: %s, OwnerReferences: %v\n", i, wl.Name, wl.OwnerReferences)
-				// Print Workload YAML
-				workloadYAML, err := yaml.Marshal(&wl)
-				if err != nil {
-					fmt.Printf("Error marshaling Workload to YAML: %v\n", err)
-				} else {
-					fmt.Printf("\n--- Workload YAML [%d] ---\n%s\n", i, string(workloadYAML))
-				}
-			}
-
-			// Print the expected workload name
-			fmt.Printf("DEBUG: Expected workload name: %s\n", jobframework.GetWorkloadNameForOwnerWithGVK(rayJob.Name, rayJob.UID, rayv1.GroupVersion.WithKind("RayJob")))
-			fmt.Printf("DEBUG: RayJob Name: %s, UID: %s\n", rayJob.Name, rayJob.UID)
-		})
-
-		ginkgo.By("DEBUG: Getting Kueue controller pod logs", func() {
-			// Create a Kubernetes clientset
-			clientset, err := kubernetes.NewForConfig(cfg)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// List all pods in kueue-system namespace
-			podList := &corev1.PodList{}
-			kueueNamespace := "kueue-system"
-			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(kueueNamespace))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), kueueNamespace)
-
-			// Print logs for each kueue controller pod
-			for _, pod := range podList.Items {
-				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
-					fmt.Printf("\n=== DEBUG: Logs for pod %s in namespace %s ===\n", pod.Name, kueueNamespace)
-
-					// Get logs for each container in the pod
-					for _, container := range pod.Spec.Containers {
-						fmt.Printf("\n--- Container: %s ---\n", container.Name)
-
-						// Get pod logs
-						logOptions := &corev1.PodLogOptions{
-							Container: container.Name,
-							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
-						}
-
-						req := clientset.CoreV1().Pods(kueueNamespace).GetLogs(pod.Name, logOptions)
-						logs, err := req.DoRaw(ctx)
-						if err != nil {
-							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
-							continue
-						}
-						fmt.Printf("%s\n", string(logs))
-					}
-					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
-				}
-			}
-		})
-
-		ginkgo.By("DEBUG: Listing all ray pods and their status", func() {
-			// Create a Kubernetes clientset
-			clientset, err := kubernetes.NewForConfig(cfg)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// List all pods in all namespaces
-			allPodList := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, allPodList)).To(gomega.Succeed())
-
-			// Filter pods whose name contains 'ray'
-			var rayPods []corev1.Pod
-			for _, pod := range allPodList.Items {
-				if strings.Contains(pod.Name, "ray") {
-					rayPods = append(rayPods, pod)
-				}
-			}
-
-			fmt.Printf("DEBUG: Found %d ray pods across all namespaces:\n", len(rayPods))
-			for i, pod := range rayPods {
-				fmt.Printf("  [%d] Namespace: %s, Name: %s, Phase: %s, Status: %+v\n",
-					i, pod.Namespace, pod.Name, pod.Status.Phase, pod.Status.Conditions)
-			}
-
-			// Get logs for each ray pod
-			for _, pod := range rayPods {
-				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded || pod.Status.Phase == corev1.PodFailed {
-					fmt.Printf("\n=== DEBUG: Logs for ray pod %s in namespace %s ===\n", pod.Name, pod.Namespace)
-
-					// Get logs for each container in the pod
-					for _, container := range pod.Spec.Containers {
-						fmt.Printf("\n--- Container: %s ---\n", container.Name)
-
-						// Get pod logs
-						logOptions := &corev1.PodLogOptions{
-							Container: container.Name,
-							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
-						}
-
-						req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, logOptions)
-						logs, err := req.DoRaw(ctx)
-						if err != nil {
-							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
-							continue
-						}
-						fmt.Printf("%s\n", string(logs))
-					}
-					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
-				}
-			}
-		})
-
 		ginkgo.By("Checking at least one workload is created and admitted or finished", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
-
-				// Check that at least one workload is admitted
 				hasAdmittedOrFinishedWorkload := false
 				for _, wl := range workloadList.Items {
-					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) || apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
+					if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadAdmitted) ||
+						apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished) {
 						hasAdmittedOrFinishedWorkload = true
 						break
 					}
@@ -362,96 +209,6 @@ var _ = ginkgo.Describe("Kuberay", func() {
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusComplete))
 				g.Expect(createdRayJob.Status.JobStatus).To(gomega.Equal(rayv1.JobStatusSucceeded))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("DEBUG: Listing all RayJobs, RayClusters and Workloads", func() {
-			// List all RayJobs in the namespace
-			rayJobList := &rayv1.RayJobList{}
-			gomega.Expect(k8sClient.List(ctx, rayJobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d RayJobs in namespace %s:\n", len(rayJobList.Items), ns.Name)
-			for i, rj := range rayJobList.Items {
-				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rj.Name, rj.UID, rj.Annotations)
-				// Print RayJob YAML
-				rayJobYAML, err := yaml.Marshal(&rj)
-				if err != nil {
-					fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
-				} else {
-					fmt.Printf("\n--- RayJob YAML [%d] ---\n%s\n", i, string(rayJobYAML))
-				}
-			}
-
-			// List all RayClusters in the namespace
-			rayClusterList := &rayv1.RayClusterList{}
-			gomega.Expect(k8sClient.List(ctx, rayClusterList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d RayClusters in namespace %s:\n", len(rayClusterList.Items), ns.Name)
-			for i, rc := range rayClusterList.Items {
-				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rc.Name, rc.UID, rc.Annotations)
-				// Print RayCluster YAML
-				rayClusterYAML, err := yaml.Marshal(&rc)
-				if err != nil {
-					fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
-				} else {
-					fmt.Printf("\n--- RayCluster YAML [%d] ---\n%s\n", i, string(rayClusterYAML))
-				}
-			}
-
-			// List all Workloads in the namespace
-			workloadList := &kueue.WorkloadList{}
-			gomega.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d Workloads in namespace %s:\n", len(workloadList.Items), ns.Name)
-			for i, wl := range workloadList.Items {
-				fmt.Printf("  [%d] Name: %s, OwnerReferences: %v\n", i, wl.Name, wl.OwnerReferences)
-				// Print Workload YAML
-				workloadYAML, err := yaml.Marshal(&wl)
-				if err != nil {
-					fmt.Printf("Error marshaling Workload to YAML: %v\n", err)
-				} else {
-					fmt.Printf("\n--- Workload YAML [%d] ---\n%s\n", i, string(workloadYAML))
-				}
-			}
-
-			// Print the expected workload name
-			fmt.Printf("DEBUG: Expected workload name: %s\n", jobframework.GetWorkloadNameForOwnerWithGVK(rayJob.Name, rayJob.UID, rayv1.GroupVersion.WithKind("RayJob")))
-			fmt.Printf("DEBUG: RayJob Name: %s, UID: %s\n", rayJob.Name, rayJob.UID)
-		})
-
-		ginkgo.By("DEBUG: Getting Kueue controller pod logs", func() {
-			// Create a Kubernetes clientset
-			clientset, err := kubernetes.NewForConfig(cfg)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// List all pods in kueue-system namespace
-			podList := &corev1.PodList{}
-			kueueNamespace := "kueue-system"
-			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace(kueueNamespace))).To(gomega.Succeed())
-			fmt.Printf("DEBUG: Found %d pods in namespace %s:\n", len(podList.Items), kueueNamespace)
-
-			// Print logs for each kueue controller pod
-			for _, pod := range podList.Items {
-				if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodSucceeded {
-					fmt.Printf("\n=== DEBUG: Logs for pod %s in namespace %s ===\n", pod.Name, kueueNamespace)
-
-					// Get logs for each container in the pod
-					for _, container := range pod.Spec.Containers {
-						fmt.Printf("\n--- Container: %s ---\n", container.Name)
-
-						// Get pod logs
-						logOptions := &corev1.PodLogOptions{
-							Container: container.Name,
-							TailLines: func(i int64) *int64 { return &i }(100), // Last 100 lines
-						}
-
-						req := clientset.CoreV1().Pods(kueueNamespace).GetLogs(pod.Name, logOptions)
-						logs, err := req.DoRaw(ctx)
-						if err != nil {
-							fmt.Printf("Error getting logs for container %s: %v\n", container.Name, err)
-							continue
-						}
-						fmt.Printf("%s\n", string(logs))
-					}
-					fmt.Printf("=== End logs for pod %s ===\n\n", pod.Name)
-				}
-			}
 		})
 	})
 
