@@ -38,7 +38,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 	"sigs.k8s.io/yaml"
 	"strings"
-	"time"
 )
 
 var _ = ginkgo.Describe("Kuberay", func() {
@@ -182,11 +181,11 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Sleeping 180 seconds before listing resources", func() {
-			fmt.Println("DEBUG: Sleeping for 180 seconds to allow workload creation...")
-			time.Sleep(180 * time.Second)
-			fmt.Println("DEBUG: Sleep complete, now listing resources")
-		})
+		//ginkgo.By("Sleeping 180 seconds before listing resources", func() {
+		//	fmt.Println("DEBUG: Sleeping for 180 seconds to allow workload creation...")
+		//	time.Sleep(180 * time.Second)
+		//	fmt.Println("DEBUG: Sleep complete, now listing resources")
+		//})
 
 		ginkgo.By("DEBUG: Listing all RayJobs, RayClusters and Workloads", func() {
 			// List all RayJobs in the namespace
