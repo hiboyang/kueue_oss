@@ -36,6 +36,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/yaml"
 	"strings"
 	"time"
 )
@@ -187,13 +188,35 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			fmt.Println("DEBUG: Sleep complete, now listing resources")
 		})
 
-		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
+		ginkgo.By("DEBUG: Listing all RayJobs, RayClusters and Workloads", func() {
 			// List all RayJobs in the namespace
 			rayJobList := &rayv1.RayJobList{}
 			gomega.Expect(k8sClient.List(ctx, rayJobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 			fmt.Printf("DEBUG: Found %d RayJobs in namespace %s:\n", len(rayJobList.Items), ns.Name)
 			for i, rj := range rayJobList.Items {
 				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rj.Name, rj.UID, rj.Annotations)
+				// Print RayJob YAML
+				rayJobYAML, err := yaml.Marshal(&rj)
+				if err != nil {
+					fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
+				} else {
+					fmt.Printf("\n--- RayJob YAML [%d] ---\n%s\n", i, string(rayJobYAML))
+				}
+			}
+
+			// List all RayClusters in the namespace
+			rayClusterList := &rayv1.RayClusterList{}
+			gomega.Expect(k8sClient.List(ctx, rayClusterList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d RayClusters in namespace %s:\n", len(rayClusterList.Items), ns.Name)
+			for i, rc := range rayClusterList.Items {
+				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rc.Name, rc.UID, rc.Annotations)
+				// Print RayCluster YAML
+				rayClusterYAML, err := yaml.Marshal(&rc)
+				if err != nil {
+					fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
+				} else {
+					fmt.Printf("\n--- RayCluster YAML [%d] ---\n%s\n", i, string(rayClusterYAML))
+				}
 			}
 
 			// List all Workloads in the namespace
@@ -202,6 +225,13 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			fmt.Printf("DEBUG: Found %d Workloads in namespace %s:\n", len(workloadList.Items), ns.Name)
 			for i, wl := range workloadList.Items {
 				fmt.Printf("  [%d] Name: %s, OwnerReferences: %v\n", i, wl.Name, wl.OwnerReferences)
+				// Print Workload YAML
+				workloadYAML, err := yaml.Marshal(&wl)
+				if err != nil {
+					fmt.Printf("Error marshaling Workload to YAML: %v\n", err)
+				} else {
+					fmt.Printf("\n--- Workload YAML [%d] ---\n%s\n", i, string(workloadYAML))
+				}
 			}
 
 			// Print the expected workload name
@@ -335,13 +365,35 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("DEBUG: Listing all RayJobs and Workloads", func() {
+		ginkgo.By("DEBUG: Listing all RayJobs, RayClusters and Workloads", func() {
 			// List all RayJobs in the namespace
 			rayJobList := &rayv1.RayJobList{}
 			gomega.Expect(k8sClient.List(ctx, rayJobList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 			fmt.Printf("DEBUG: Found %d RayJobs in namespace %s:\n", len(rayJobList.Items), ns.Name)
 			for i, rj := range rayJobList.Items {
 				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rj.Name, rj.UID, rj.Annotations)
+				// Print RayJob YAML
+				rayJobYAML, err := yaml.Marshal(&rj)
+				if err != nil {
+					fmt.Printf("Error marshaling RayJob to YAML: %v\n", err)
+				} else {
+					fmt.Printf("\n--- RayJob YAML [%d] ---\n%s\n", i, string(rayJobYAML))
+				}
+			}
+
+			// List all RayClusters in the namespace
+			rayClusterList := &rayv1.RayClusterList{}
+			gomega.Expect(k8sClient.List(ctx, rayClusterList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			fmt.Printf("DEBUG: Found %d RayClusters in namespace %s:\n", len(rayClusterList.Items), ns.Name)
+			for i, rc := range rayClusterList.Items {
+				fmt.Printf("  [%d] Name: %s, UID: %s, Annotations: %v\n", i, rc.Name, rc.UID, rc.Annotations)
+				// Print RayCluster YAML
+				rayClusterYAML, err := yaml.Marshal(&rc)
+				if err != nil {
+					fmt.Printf("Error marshaling RayCluster to YAML: %v\n", err)
+				} else {
+					fmt.Printf("\n--- RayCluster YAML [%d] ---\n%s\n", i, string(rayClusterYAML))
+				}
 			}
 
 			// List all Workloads in the namespace
@@ -350,6 +402,13 @@ var _ = ginkgo.Describe("Kuberay", func() {
 			fmt.Printf("DEBUG: Found %d Workloads in namespace %s:\n", len(workloadList.Items), ns.Name)
 			for i, wl := range workloadList.Items {
 				fmt.Printf("  [%d] Name: %s, OwnerReferences: %v\n", i, wl.Name, wl.OwnerReferences)
+				// Print Workload YAML
+				workloadYAML, err := yaml.Marshal(&wl)
+				if err != nil {
+					fmt.Printf("Error marshaling Workload to YAML: %v\n", err)
+				} else {
+					fmt.Printf("\n--- Workload YAML [%d] ---\n%s\n", i, string(workloadYAML))
+				}
 			}
 
 			// Print the expected workload name
