@@ -65,7 +65,7 @@ func MakeJob(name, ns string) *JobWrapper {
 					{
 						GroupName:      "workers-group-0",
 						Replicas:       ptr.To[int32](1),
-						MinReplicas:    ptr.To[int32](0),
+						MinReplicas:    ptr.To[int32](1),
 						MaxReplicas:    ptr.To[int32](10),
 						RayStartParams: map[string]string{},
 						Template: corev1.PodTemplateSpec{
