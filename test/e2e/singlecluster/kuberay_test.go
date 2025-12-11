@@ -182,7 +182,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(5)])
 print(ray.get([my_task.remote(i, 5) for i in range(8)]))
 
 # run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(5)])`,
+print([ray.get(my_task.remote(i, 1)) for i in range(8)])`,
 			},
 		}
 
@@ -300,7 +300,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(5)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for 3 workloads", func() {
+		ginkgo.By("Waiting for 3 workloads due to scaling up creating another workload", func() {
 			// 3 workloads now, after scaling up, a new workload will be created for the new resource request
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
