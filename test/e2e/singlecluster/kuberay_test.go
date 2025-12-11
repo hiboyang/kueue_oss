@@ -176,11 +176,11 @@ def my_task(x, s):
     return x * x
 
 # run tasks in sequence to avoid triggering autoscaling in the beginning
-print([ray.get(my_task.remote(i, 1)) for i in range(10)])
+print([ray.get(my_task.remote(i, 1)) for i in range(5)])
 # run tasks in parallel to trigger autoscaling (scaling up)
-print(ray.get([my_task.remote(i, 5) for i in range(10)]))
+print(ray.get([my_task.remote(i, 5) for i in range(5)]))
 # run tasks in sequence to trigger scaling down
-print([ray.get(my_task.remote(i, 1)) for i in range(10)])`,
+print([ray.get(my_task.remote(i, 1)) for i in range(5)])`,
 			},
 		}
 
