@@ -246,9 +246,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(8)])`,
 		ginkgo.By("Creating the rayJob", func() {
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
-		ginkgo.DeferCleanup(func() {
-			gomega.Expect(k8sClient.Delete(ctx, rayJob)).Should(gomega.Succeed())
-		})
 
 		ginkgo.By("Checking one workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
