@@ -104,8 +104,13 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created without queue assigned")
+		// Get the RayCluster created by this RayJob and verify it's suspended
+		gomega.Expect(createdJob.Status.RayClusterName).ShouldNot(gomega.BeEmpty())
+		createdRayCluster := &rayv1.RayCluster{}
+		rayClusterKey := types.NamespacedName{Name: createdJob.Status.RayClusterName, Namespace: ns.Name}
+		gomega.Expect(k8sClient.Get(ctx, rayClusterKey, createdRayCluster)).Should(gomega.Succeed())
 		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID), Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(createdRayCluster.Name, createdRayCluster.UID), Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
