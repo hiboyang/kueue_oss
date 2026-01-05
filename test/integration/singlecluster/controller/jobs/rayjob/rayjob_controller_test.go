@@ -151,7 +151,11 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		job := testingrayjob.MakeJob(jobName, ns.Name).Obj()
 		util.MustCreate(ctx, k8sClient, job)
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-		createdJob := &rayv1.RayJob{}
+		createdJob := &rayv1.RayJob{
+			Spec: rayv1.RayJobSpec{
+				Suspend: false,
+			},
+		}
 		setInitStatus(jobName, ns.Name)
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
