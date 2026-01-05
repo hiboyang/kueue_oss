@@ -132,9 +132,13 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				g.Expect(k8sClient.Status().Update(ctx, parentJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Fetching the workload created for the job")
+			ginkgo.By("Fetching the workload created for the RayCluster under the job")
+			gomega.Expect(parentJob.Status.RayClusterName).ShouldNot(gomega.BeEmpty())
+			createdRayCluster := &rayv1.RayCluster{}
+			rayClusterKey := types.NamespacedName{Name: parentJob.Status.RayClusterName, Namespace: ns.Name}
+			gomega.Expect(k8sClient.Get(ctx, rayClusterKey, createdRayCluster)).Should(gomega.Succeed())
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(parentJob.Name, parentJob.UID), Namespace: ns.Name}
+			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(createdRayCluster.Name, createdRayCluster.UID), Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
