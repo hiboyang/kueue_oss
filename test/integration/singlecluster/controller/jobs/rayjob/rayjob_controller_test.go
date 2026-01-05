@@ -300,8 +300,12 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		setInitStatus(jobName, ns.Name)
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
+		gomega.Expect(createdJob.Status.RayClusterName).ShouldNot(gomega.BeEmpty())
+		createdRayCluster := &rayv1.RayCluster{}
+		rayClusterKey := types.NamespacedName{Name: createdJob.Status.RayClusterName, Namespace: ns.Name}
+		gomega.Expect(k8sClient.Get(ctx, rayClusterKey, createdRayCluster)).Should(gomega.Succeed())
 		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID), Namespace: ns.Name}
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(createdRayCluster.Name, createdRayCluster.UID), Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(utiltesting.BeNotFoundError())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -666,7 +670,6 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-			// Get the RayCluster created by this RayJob and verify it's suspended
 			g.Expect(createdJob.Status.RayClusterName).ShouldNot(gomega.BeEmpty())
 			createdRayCluster := &rayv1.RayCluster{}
 			rayClusterKey := types.NamespacedName{Name: createdJob.Status.RayClusterName, Namespace: ns.Name}
