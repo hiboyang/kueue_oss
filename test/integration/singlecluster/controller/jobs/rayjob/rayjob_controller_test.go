@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("Should reconcile jobs only when queue is set", func() {
+	ginkgo.It("Should not reconcile jobs even when queue is set since Kueue will manage RayCluster under RayJob instead of managing RayJob directly", func() {
 		ginkgo.By("checking the workload is not created when queue name is not set")
 		job := testingrayjob.MakeJob(jobName, ns.Name).Obj()
 		util.MustCreate(ctx, k8sClient, job)
@@ -155,17 +155,7 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		setInitStatus(jobName, ns.Name)
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-		gomega.Expect(createdJob.Status.RayClusterName).ShouldNot(gomega.BeEmpty())
-		createdRayCluster := &rayv1.RayCluster{}
-		rayClusterKey := types.NamespacedName{Name: createdJob.Status.RayClusterName, Namespace: ns.Name}
-		gomega.Expect(k8sClient.Get(ctx, rayClusterKey, createdRayCluster)).Should(gomega.Succeed())
-		createdWorkload := &kueue.Workload{}
-		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(createdRayCluster.Name, createdRayCluster.UID), Namespace: ns.Name}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(utiltesting.BeNotFoundError())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("checking the workload is created when queue name is set")
+		ginkgo.By("checking no workload created even when queue name is set")
 		jobQueueName := "test-queue"
 		if createdJob.Labels == nil {
 			createdJob.Labels = map[string]string{constants.QueueLabel: jobQueueName}
@@ -173,6 +163,8 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			createdJob.Labels[constants.QueueLabel] = jobQueueName
 		}
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
