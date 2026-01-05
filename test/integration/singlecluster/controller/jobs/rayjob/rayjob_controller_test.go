@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 	})
 
 	ginkgo.It("Should not reconcile RayJobs since Kueue will manage RayCluster under RayJob instead of managing RayJob directly", func() {
-		ginkgo.By("checking the job gets unsuspended when created suspended")
+		ginkgo.By("checking the job gets unsuspended")
 		priorityClass := utiltesting.MakePriorityClass(priorityClassName).
 			PriorityValue(priorityValue).Obj()
 		util.MustCreate(ctx, k8sClient, priorityClass)
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		}()
 
 		job := testingrayjob.MakeJob(jobName, ns.Name).
-			Suspend(true).
+			Suspend(false).
 			WithPriorityClassName(priorityClassName).
 			Obj()
 		util.MustCreate(ctx, k8sClient, job)
