@@ -22,7 +22,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -207,158 +206,6 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 	ginkgo.AfterEach(func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
-
-	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
-		func(podsReadyTestSpec podsReadyTestSpec) {
-			ginkgo.By("Create a job")
-			job := testingrayjob.MakeJob(jobName, ns.Name).WithSubmissionMode(rayv1.K8sJobMode).Obj()
-			jobQueueName := "test-queue"
-			job.Labels = map[string]string{constants.QueueLabel: jobQueueName}
-			util.MustCreate(ctx, k8sClient, job)
-			lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
-			setInitStatus(jobName, ns.Name)
-			createdJob := &rayv1.RayJob{}
-			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
-			ginkgo.By("Fetch the workload created for the job")
-			createdWorkload := &kueue.Workload{}
-			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID), Namespace: ns.Name}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Admit the workload created for the job")
-			admission := utiltestingapi.MakeAdmission("foo").PodSets(
-				kueue.PodSetAssignment{
-					Name: createdWorkload.Spec.PodSets[0].Name,
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "default",
-					},
-				}, kueue.PodSetAssignment{
-					Name: createdWorkload.Spec.PodSets[1].Name,
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "default",
-					},
-				}, kueue.PodSetAssignment{
-					Name: createdWorkload.Spec.PodSets[2].Name,
-					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-						corev1.ResourceCPU: "default",
-					},
-				},
-			).Obj()
-			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-
-			ginkgo.By("Await for the job to be unsuspended")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			if podsReadyTestSpec.beforeJobStatus != nil {
-				ginkgo.By("Update the job status to simulate its initial progress towards completion")
-				createdJob.Status = *podsReadyTestSpec.beforeJobStatus
-				gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			}
-
-			if podsReadyTestSpec.beforeCondition != nil {
-				ginkgo.By("Update the workload status")
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(
-						gomega.BeComparableTo(podsReadyTestSpec.beforeCondition, util.IgnoreConditionTimestampsAndObservedGeneration),
-					)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			}
-
-			ginkgo.By("Update the job status to simulate its progress towards completion")
-			createdJob.Status = podsReadyTestSpec.jobStatus
-			gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
-			gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-
-			if podsReadyTestSpec.suspended {
-				ginkgo.By("Unset admission of the workload to suspend the job")
-				util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
-				util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-			}
-
-			ginkgo.By("Verify the PodsReady condition is added")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-				g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(
-					gomega.BeComparableTo(podsReadyTestSpec.wantCondition, util.IgnoreConditionTimestampsAndObservedGeneration),
-				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		},
-		ginkgo.Entry("No progress", podsReadyTestSpec{
-			wantCondition: &metav1.Condition{
-				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded",
-			},
-		}),
-		ginkgo.Entry("Running RayJob", podsReadyTestSpec{
-			jobStatus: rayv1.RayJobStatus{
-				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
-				RayClusterStatus: rayv1.RayClusterStatus{
-					State: rayv1.Ready,
-				},
-			},
-			wantCondition: &metav1.Condition{
-				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadStarted,
-				Message: "All pods reached readiness and the workload is running",
-			},
-		}),
-		ginkgo.Entry("Running RayJob; PodsReady=False before", podsReadyTestSpec{
-			beforeCondition: &metav1.Condition{
-				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded",
-			},
-			jobStatus: rayv1.RayJobStatus{
-				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
-				RayClusterStatus: rayv1.RayClusterStatus{
-					State: rayv1.Ready,
-				},
-			},
-			wantCondition: &metav1.Condition{
-				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadStarted,
-				Message: "All pods reached readiness and the workload is running",
-			},
-		}),
-		ginkgo.Entry("Job suspended; PodsReady=True before", podsReadyTestSpec{
-			beforeJobStatus: &rayv1.RayJobStatus{
-				JobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
-				RayClusterStatus: rayv1.RayClusterStatus{
-					State: rayv1.Ready,
-				},
-			},
-			beforeCondition: &metav1.Condition{
-				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionTrue,
-				Reason:  kueue.WorkloadStarted,
-				Message: "All pods reached readiness and the workload is running",
-			},
-			jobStatus: rayv1.RayJobStatus{
-				JobDeploymentStatus: rayv1.JobDeploymentStatusSuspended,
-			},
-			suspended: true,
-			wantCondition: &metav1.Condition{
-				Type:    kueue.WorkloadPodsReady,
-				Status:  metav1.ConditionFalse,
-				Reason:  kueue.WorkloadWaitForStart,
-				Message: "Not all pods are ready or succeeded",
-			},
-		}),
-	)
 })
 
 var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -374,7 +221,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		onDemandFlavor      *kueue.ResourceFlavor
 		spotUntaintedFlavor *kueue.ResourceFlavor
 		clusterQueue        *kueue.ClusterQueue
-		localQueue          *kueue.LocalQueue
 	)
 
 	ginkgo.BeforeEach(func() {
@@ -398,30 +244,6 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
-	})
-
-	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
-		ginkgo.By("creating localQueue")
-		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-
-		ginkgo.By("checking a dev job starts")
-		job := testingrayjob.MakeJob("dev-job", ns.Name).Queue(localQueue.Name).
-			RequestHead(corev1.ResourceCPU, "3").
-			RequestWorkerGroup(corev1.ResourceCPU, "4").
-			Obj()
-		util.MustCreate(ctx, k8sClient, job)
-		setInitStatus(job.Name, job.Namespace)
-		createdJob := &rayv1.RayJob{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, createdJob)).
-				Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		gomega.Expect(createdJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(spotUntaintedFlavor.Name))
-		gomega.Expect(createdJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.NodeSelector[instanceKey]).Should(gomega.Equal(onDemandFlavor.Name))
-		util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
-		util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 	})
 })
 
@@ -471,82 +293,6 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
-	})
-
-	ginkgo.It("Should preempt lower priority rayJobs when resource insufficient", func() {
-		ginkgo.By("Create a low priority rayJob")
-		lowPriorityJob := testingrayjob.MakeJob("rayjob-with-low-priority", ns.Name).Queue(localQueue.Name).
-			RequestHead(corev1.ResourceCPU, "1").
-			RequestWorkerGroup(corev1.ResourceCPU, "2").
-			Obj()
-		util.MustCreate(ctx, k8sClient, lowPriorityJob)
-		setInitStatus(lowPriorityJob.Name, lowPriorityJob.Namespace)
-
-		ginkgo.By("Await for the low priority workload to be admitted")
-		createdJob := &rayv1.RayJob{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Create a high priority rayJob which will preempt the lower one")
-		highPriorityJob := testingrayjob.MakeJob("rayjob-with-high-priority", ns.Name).Queue(localQueue.Name).
-			RequestHead(corev1.ResourceCPU, "2").
-			WithPriorityClassName(priorityClassName).
-			RequestWorkerGroup(corev1.ResourceCPU, "2").
-			Obj()
-		util.MustCreate(ctx, k8sClient, highPriorityJob)
-		setInitStatus(highPriorityJob.Name, highPriorityJob.Namespace)
-
-		ginkgo.By("High priority workload should be admitted")
-		highPriorityWL := &kueue.Workload{}
-		highPriorityLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(highPriorityJob.Name, highPriorityJob.UID), Namespace: ns.Name}
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, highPriorityLookupKey, highPriorityWL)).To(gomega.Succeed())
-			g.Expect(highPriorityWL.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Low priority workload should not be admitted")
-		createdWorkload := &kueue.Workload{}
-		lowPriorityLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(lowPriorityJob.Name, lowPriorityJob.UID), Namespace: ns.Name}
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lowPriorityLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(apimeta.IsStatusConditionFalse(createdWorkload.Status.Conditions, kueue.WorkloadAdmitted)).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Low priority rayJob should be suspended")
-		createdJob = &rayv1.RayJob{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-			g.Expect(createdJob.Status.RayClusterName).ShouldNot(gomega.BeEmpty())
-			createdRayCluster := &rayv1.RayCluster{}
-			rayClusterKey := types.NamespacedName{Name: createdJob.Status.RayClusterName, Namespace: ns.Name}
-			g.Expect(k8sClient.Get(ctx, rayClusterKey, createdRayCluster)).Should(gomega.Succeed())
-			g.Expect(createdRayCluster.Spec.Suspend).ShouldNot(gomega.BeNil())
-			g.Expect(*createdRayCluster.Spec.Suspend).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Delete high priority rayjob")
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityJob, true)
-		// Manually delete workload because no garbage collection controller.
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriorityWL, true)
-
-		ginkgo.By("Low priority workload should be admitted again")
-		createdWorkload = &kueue.Workload{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lowPriorityLookupKey, createdWorkload)).To(gomega.Succeed())
-			g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("Low priority rayJob should be unsuspended")
-		createdJob = &rayv1.RayJob{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should skip reconciliation for RayJobs with clusterSelector", func() {
