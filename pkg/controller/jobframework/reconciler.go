@@ -18,10 +18,8 @@ package jobframework
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,10 +29,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -424,21 +420,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				}
 			}
 		}
-		if ancestorJob != nil {
-			log.V(3).Info("Update annotation on ancestor job to trigger reconciliation", "ancestorJob", ancestorJob.GetName())
-			if err := clientutil.Patch(ctx, r.client, ancestorJob, func() (bool, error) {
-				annotations := ancestorJob.GetAnnotations()
-				if annotations == nil {
-					annotations = make(map[string]string)
-				}
-				annotations[constants.TriggerReconcileAnnotation] = strconv.FormatInt(time.Now().UnixNano(), 10)
-				ancestorJob.SetAnnotations(annotations)
-				return true, nil
-			}); err != nil {
-				log.Error(err, "failed to update trigger-reconcile annotation on ancestor job", "ancestorJob", ancestorJob.GetName())
-				return ctrl.Result{}, err
-			}
-		}
 		return ctrl.Result{}, nil
 	}
 
@@ -679,50 +660,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if workloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		// If object is RayJob, get its RayCluster, start RayCluster pods since the pods are owned by the RayCluster
-		rayJobGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayJob"}
-		if job.GVK() == rayJobGVK {
-			// Use unstructured client to avoid compile-time dependency on RayJob/RayCluster CRs
-			rayJobUnstructured := &unstructured.Unstructured{}
-			rayJobUnstructured.SetGroupVersionKind(rayJobGVK)
-			if err := r.client.Get(ctx, types.NamespacedName{
-				Namespace: object.GetNamespace(),
-				Name:      object.GetName(),
-			}, rayJobUnstructured); err != nil {
-				log.Error(err, "Failed to get RayJob as unstructured")
-				return ctrl.Result{}, err
-			}
-
-			// Get RayClusterName from RayJob.Status.RayClusterName
-			rayClusterName, found, err := unstructured.NestedString(rayJobUnstructured.Object, "status", "rayClusterName")
-			if err != nil {
-				log.Error(err, "Failed to get rayClusterName from RayJob status")
-				return ctrl.Result{}, err
-			}
-
-			if found && rayClusterName != "" {
-				// Get the RayCluster object
-				rayClusterGVK := schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
-				rayClusterUnstructured := &unstructured.Unstructured{}
-				rayClusterUnstructured.SetGroupVersionKind(rayClusterGVK)
-				if err := r.client.Get(ctx, types.NamespacedName{
-					Namespace: object.GetNamespace(),
-					Name:      rayClusterName,
-				}, rayClusterUnstructured); err != nil {
-					log.Error(err, "Failed to get RayCluster as unstructured", "rayCluster", rayClusterName)
-					// Fall back to starting only RayJob pods if RayCluster is not found
-				} else {
-					// Start RayCluster pods first
-					log.V(3).Info("Starting RayCluster pods", "rayCluster", rayClusterName)
-					if err := workloadslicing.StartWorkloadSlicePods(ctx, r.client, rayClusterUnstructured); err != nil {
-						log.Error(err, "Failed to start RayCluster pods", "rayCluster", rayClusterName)
-						return ctrl.Result{}, err
-					}
-				}
-			}
-		}
-		// Fallback to start pods on RayJob or other job type
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, object)
+		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
 	}
 
 	// workload is admitted and job is running, nothing to do.
@@ -942,15 +880,6 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
 		}
 
-		// Check if there's a scale-up request from a worker cluster (via MultiKueue).
-		// This happens when the worker cluster detects autoscaling and reports the
-		// requested pod counts back to the manager.
-		if scaleUpWl, err := r.processScaleRequest(ctx, job, object); err != nil {
-			return nil, err
-		} else if scaleUpWl != nil {
-			return scaleUpWl, nil
-		}
-
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
@@ -1119,7 +1048,6 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
-	log := ctrl.LoggerFrom(ctx)
 	var (
 		equivalent bool
 		err        error
@@ -1135,225 +1063,11 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		if err != nil {
 			return false, err
 		}
-
-		// For elastic jobs on MultiKueue worker clusters, check if this is a scale-up or scale-down.
-		// Instead of marking the workload as OutOfSync, report the scale request
-		// to the manager cluster via an annotation.
-		if workloadSliceEnabled(job) && isMultiKueueWorkerCluster(wl) {
-			podSets, psErr := JobPodSets(ctx, r.client, job)
-			if psErr != nil {
-				return false, psErr
-			}
-
-			jobPodSetsCounts := workload.ExtractPodSetCounts(podSets)
-			wlPodSetsCounts := workload.ExtractPodSetCountsFromWorkload(wl)
-
-			// Check if this is a scale-up (job needs more pods than workload has)
-			if wlPodSetsCounts.HasFewerReplicasThan(jobPodSetsCounts) {
-				log.V(2).Info("Elastic job scale-up detected on worker cluster, reporting to manager",
-					"workload", klog.KObj(wl),
-					"currentCounts", wlPodSetsCounts,
-					"requestedCounts", jobPodSetsCounts)
-
-				// Report scale-up request via workload annotation
-				if reportErr := r.reportScaleRequest(ctx, wl, jobPodSetsCounts); reportErr != nil {
-					return false, reportErr
-				}
-
-				// Return true (in-sync) to keep job running with current resources.
-				// Manager will create new workload slice and sync it back.
-				return true, nil
-			}
-
-			// Check if this is a scale-down (job needs fewer pods than workload has)
-			if jobPodSetsCounts.HasFewerReplicasThan(wlPodSetsCounts) {
-				log.V(2).Info("Elastic job scale-down detected on worker cluster, reporting to manager",
-					"workload", klog.KObj(wl),
-					"currentCounts", wlPodSetsCounts,
-					"requestedCounts", jobPodSetsCounts)
-
-				// Report scale-down request via workload annotation (same mechanism as scale-up)
-				if reportErr := r.reportScaleRequest(ctx, wl, jobPodSetsCounts); reportErr != nil {
-					return false, reportErr
-				}
-
-				// Return true (in-sync) to keep job running.
-				// Manager will update workload in place and sync it back.
-				return true, nil
-			}
-		}
-
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
 		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock, r.roleTracker)
 	}
 	return true, nil
-}
-
-// isMultiKueueWorkerCluster returns true if the workload is on a MultiKueue worker cluster.
-// Workloads on worker clusters have the MultiKueueOriginLabel set by the manager.
-func isMultiKueueWorkerCluster(wl *kueue.Workload) bool {
-	return wl.Labels != nil && wl.Labels[kueue.MultiKueueOriginLabel] != ""
-}
-
-// reportScaleRequest annotates the workload with the requested pod set counts
-// so that MultiKueue can propagate this request to the manager cluster.
-func (r *JobReconciler) reportScaleRequest(ctx context.Context, wl *kueue.Workload, requestedCounts workload.PodSetsCounts) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Check if the same request is already pending
-	existingRequest := wl.Annotations[workloadslicing.ScaleRequestAnnotation]
-	countsJSON, err := json.Marshal(requestedCounts)
-	if err != nil {
-		return fmt.Errorf("failed to marshal scale request: %w", err)
-	}
-
-	if existingRequest == string(countsJSON) {
-		log.V(3).Info("Scale request already pending, skipping update",
-			"workload", klog.KObj(wl),
-			"request", existingRequest)
-		return nil
-	}
-
-	return clientutil.Patch(ctx, r.client, wl, func() (bool, error) {
-		if wl.Annotations == nil {
-			wl.Annotations = make(map[string]string)
-		}
-		wl.Annotations[workloadslicing.ScaleRequestAnnotation] = string(countsJSON)
-		return true, nil
-	})
-}
-
-// processScaleRequest checks for a scale request from a worker cluster (via MultiKueue)
-// and handles it appropriately:
-// - For scale-up: creates a new workload slice with the requested pod counts
-// - For scale-down: updates the existing workload in place
-// This is the manager-side processing of autoscaling events detected on worker clusters.
-//
-// Returns:
-// - (*Workload, nil): if a scale request was processed
-// - (nil, nil): if no scale request is pending
-// - (nil, error): if processing failed
-func (r *JobReconciler) processScaleRequest(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Find existing workloads for this job
-	workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, object, job.GVK())
-	if err != nil {
-		return nil, fmt.Errorf("failed to find existing workloads: %w", err)
-	}
-
-	if len(workloads) == 0 {
-		return nil, nil
-	}
-
-	// Check if any workload has a scale request annotation
-	var existingWl *kueue.Workload
-	var scaleRequest string
-	for i := range workloads {
-		wl := &workloads[i]
-		if wl.Annotations != nil && wl.Annotations[workloadslicing.ScaleRequestAnnotation] != "" {
-			existingWl = wl
-			scaleRequest = wl.Annotations[workloadslicing.ScaleRequestAnnotation]
-			break
-		}
-	}
-
-	if scaleRequest == "" {
-		return nil, nil
-	}
-
-	log.V(2).Info("Processing scale request from worker cluster",
-		"workload", klog.KObj(existingWl),
-		"request", scaleRequest)
-
-	// Parse the requested pod set counts
-	var requestedCounts workload.PodSetsCounts
-	if err := json.Unmarshal([]byte(scaleRequest), &requestedCounts); err != nil {
-		return nil, fmt.Errorf("failed to parse scale request: %w", err)
-	}
-
-	// Determine if this is scale-up or scale-down
-	existingCounts := workload.ExtractPodSetCountsFromWorkload(existingWl)
-	isScaleDown := workloadslicing.ScaledDown(existingCounts, requestedCounts)
-
-	if isScaleDown {
-		// Scale-down: update existing workload in place
-		log.V(2).Info("Processing scale-down request, updating workload in place",
-			"workload", klog.KObj(existingWl),
-			"existingCounts", existingCounts,
-			"requestedCounts", requestedCounts)
-
-		// Update the workload with new counts
-		workload.ApplyPodSetCounts(existingWl, requestedCounts)
-
-		// Clear the scale request annotation
-		delete(existingWl.Annotations, workloadslicing.ScaleRequestAnnotation)
-
-		if err := r.client.Update(ctx, existingWl); err != nil {
-			return nil, fmt.Errorf("failed to update workload for scale-down: %w", err)
-		}
-
-		r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedWorkload,
-			"Updated Workload for scale-down: %v", workload.Key(existingWl))
-
-		return existingWl, nil
-	}
-
-	// Scale-up: create a new workload slice
-	log.V(2).Info("Processing scale-up request, creating new workload slice",
-		"existingWorkload", klog.KObj(existingWl),
-		"existingCounts", existingCounts,
-		"requestedCounts", requestedCounts)
-
-	// Create a new workload with the requested counts
-	newWl, err := r.constructWorkload(ctx, job)
-	if err != nil {
-		return nil, fmt.Errorf("failed to construct new workload: %w", err)
-	}
-
-	// Apply the requested pod set counts
-	workload.ApplyPodSetCounts(newWl, requestedCounts)
-
-	// Mark as replacement for existing workload
-	if newWl.Annotations == nil {
-		newWl.Annotations = make(map[string]string)
-	}
-	newWl.Annotations[workloadslicing.WorkloadSliceReplacementFor] = string(workload.Key(existingWl))
-	// Mark as elastic job
-	newWl.Annotations[workloadslicing.EnabledAnnotationKey] = workloadslicing.EnabledAnnotationValue
-
-	// Prepare workload (set priority, etc.)
-	if err := r.prepareWorkload(ctx, job, newWl, newWl.Spec.Active); err != nil {
-		return nil, fmt.Errorf("failed to prepare workload: %w", err)
-	}
-
-	// Create the new workload slice
-	if err := r.client.Create(ctx, newWl); err != nil {
-		return nil, fmt.Errorf("failed to create scale-up workload: %w", err)
-	}
-
-	log.V(2).Info("Created scale-up workload slice",
-		"oldWorkload", klog.KObj(existingWl),
-		"newWorkload", klog.KObj(newWl),
-		"requestedCounts", requestedCounts)
-
-	r.record.Eventf(object, corev1.EventTypeNormal, ReasonCreatedWorkload,
-		"Created scale-up Workload slice: %v (replacing %v)", workload.Key(newWl), workload.Key(existingWl))
-
-	// Clear the scale request annotation from the existing workload
-	if err := clientutil.Patch(ctx, r.client, existingWl, func() (bool, error) {
-		if existingWl.Annotations != nil {
-			delete(existingWl.Annotations, workloadslicing.ScaleRequestAnnotation)
-			return true, nil
-		}
-		return false, nil
-	}); err != nil {
-		log.Error(err, "Failed to clear scale request annotation")
-		// Continue anyway - the new workload was created
-	}
-
-	return newWl, nil
 }
 
 // expectedRunningPodSets gets the expected podsets during the job execution, returns nil if the workload has no reservation or
@@ -1733,15 +1447,6 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 
 	_, usePrebuiltWorkload := PrebuiltWorkloadFor(job)
 	if usePrebuiltWorkload {
-		// For elastic jobs in MultiKueue, the prebuilt workload might be transitioning
-		// during scale-up (old slice deleted, new slice being synced via SyncJob).
-		// Don't stop the job - just wait for the new workload to be synced.
-		if workloadSliceEnabled(job) {
-			log.V(2).Info("Elastic job with prebuilt workload label has no workload object, waiting for workload sync",
-				"job", klog.KObj(object))
-			return nil
-		}
-
 		// Stop the job if not already suspended
 		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
