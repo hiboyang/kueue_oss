@@ -23,7 +23,6 @@
   - [Configuration](#configuration)
   - [MultiKueue Dispatcher API](#multikueue-dispatcher-api)
     - [Workload Synchronization](#workload-synchronization)
-    - [Scale-Down Flow](#scale-down-flow)
   - [Cluster Role sharing](#cluster-role-sharing)
   - [Follow ups ideas](#follow-ups-ideas)
   - [Test Plan](#test-plan)

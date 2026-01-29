@@ -1079,7 +1079,6 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		if err != nil {
 			return false, err
 		}
-
 		// mark the workload as finished
 		msg := "The prebuilt workload is out of sync with its user job"
 		return false, workload.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock, r.roleTracker)
