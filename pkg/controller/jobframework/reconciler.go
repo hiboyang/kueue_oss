@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -419,21 +418,6 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					}
 					r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
 				}
-			}
-		}
-		if ancestorJob != nil {
-			log.V(3).Info("Update annotation on ancestor job to trigger reconciliation", "ancestorJob", ancestorJob.GetName())
-			if err := clientutil.Patch(ctx, r.client, ancestorJob, func() (bool, error) {
-				annotations := ancestorJob.GetAnnotations()
-				if annotations == nil {
-					annotations = make(map[string]string)
-				}
-				annotations[constants.TriggerReconcileAnnotation] = strconv.FormatInt(time.Now().UnixNano(), 10)
-				ancestorJob.SetAnnotations(annotations)
-				return true, nil
-			}); err != nil {
-				log.Error(err, "failed to update trigger-reconcile annotation on ancestor job", "ancestorJob", ancestorJob.GetName())
-				return ctrl.Result{}, err
 			}
 		}
 		return ctrl.Result{}, nil
