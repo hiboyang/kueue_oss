@@ -234,34 +234,31 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 				rc := (*raycluster.RayCluster)(&rayClusterObj)
 				podSets, err := rc.PodSets(ctx, c)
 				if err != nil {
-					// Log error and fall back to RayJob spec
-					log.Error(err, "Failed to get PodSets from RayCluster, falling back to RayJob spec",
-						"rayCluster", j.Status.RayClusterName)
-				} else {
-					// submitter Job
-					if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-						submitterJobPodSet := kueue.PodSet{
-							Name:     submitterJobPodSetName,
-							Count:    1,
-							Template: *getSubmitterTemplate(j),
-						}
-
-						// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
-						// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
-						if features.Enabled(features.TopologyAwareScheduling) {
-							topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
-							if err != nil {
-								return nil, err
-							}
-							submitterJobPodSet.TopologyRequest = topologyRequest
-						}
-						podSets = append(podSets, submitterJobPodSet)
-					}
-					log.V(2).Info("Return RayJob PodSets from RayCluster",
-						"rayJob", j.Name,
-						"rayCluster", j.Status.RayClusterName)
-					return podSets, nil
+					return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
 				}
+				// submitter Job
+				if j.Spec.SubmissionMode == rayv1.K8sJobMode {
+					submitterJobPodSet := kueue.PodSet{
+						Name:     submitterJobPodSetName,
+						Count:    1,
+						Template: *getSubmitterTemplate(j),
+					}
+
+					// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+					// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+					if features.Enabled(features.TopologyAwareScheduling) {
+						topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+						if err != nil {
+							return nil, err
+						}
+						submitterJobPodSet.TopologyRequest = topologyRequest
+					}
+					podSets = append(podSets, submitterJobPodSet)
+				}
+				log.V(2).Info("Return RayJob PodSets from RayCluster",
+					"rayJob", j.Name,
+					"rayCluster", j.Status.RayClusterName)
+				return podSets, nil
 			} else {
 				log.V(2).Info("RayCluster HeadPodReady condition not met, using RayJob spec",
 					"rayCluster", j.Status.RayClusterName)
