@@ -186,26 +186,7 @@ func (j *RayJob) buildPodSetsFromRayJobSpec() ([]kueue.PodSet, error) {
 	}
 
 	// submitter Job
-	if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-		submitterJobPodSet := kueue.PodSet{
-			Name:     submitterJobPodSetName,
-			Count:    1,
-			Template: *getSubmitterTemplate(j),
-		}
-
-		// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
-		// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
-		if features.Enabled(features.TopologyAwareScheduling) {
-			topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
-			if err != nil {
-				return nil, err
-			}
-			submitterJobPodSet.TopologyRequest = topologyRequest
-		}
-		podSets = append(podSets, submitterJobPodSet)
-	}
-
-	return podSets, nil
+	return j.addSubmitterPodSet(podSets)
 }
 
 func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
@@ -237,23 +218,9 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 					return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
 				}
 				// submitter Job
-				if j.Spec.SubmissionMode == rayv1.K8sJobMode {
-					submitterJobPodSet := kueue.PodSet{
-						Name:     submitterJobPodSetName,
-						Count:    1,
-						Template: *getSubmitterTemplate(j),
-					}
-
-					// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
-					// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
-					if features.Enabled(features.TopologyAwareScheduling) {
-						topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
-						if err != nil {
-							return nil, err
-						}
-						submitterJobPodSet.TopologyRequest = topologyRequest
-					}
-					podSets = append(podSets, submitterJobPodSet)
+				podSets, err = j.addSubmitterPodSet(podSets)
+				if err != nil {
+					return nil, err
 				}
 				log.V(2).Info("Return RayJob PodSets from RayCluster",
 					"rayJob", j.Name,
@@ -390,6 +357,31 @@ func getSubmitterTemplate(rayJob *RayJob) *corev1.PodTemplateSpec {
 			RestartPolicy: corev1.RestartPolicyNever,
 		},
 	}
+}
+
+// addSubmitterPodSet creates the submitter job PodSet for RayJob and appends it to podSets
+func (j *RayJob) addSubmitterPodSet(podSets []kueue.PodSet) ([]kueue.PodSet, error) {
+	if j.Spec.SubmissionMode != rayv1.K8sJobMode {
+		return podSets, nil
+	}
+
+	submitterJobPodSet := kueue.PodSet{
+		Name:     submitterJobPodSetName,
+		Count:    1,
+		Template: *getSubmitterTemplate(j),
+	}
+
+	// Create the TopologyRequest for the Submitter Job PodSet, based on the annotations
+	// in rayJob.Spec.SubmitterPodTemplate, which can be specified by the user.
+	if features.Enabled(features.TopologyAwareScheduling) {
+		topologyRequest, err := jobframework.NewPodSetTopologyRequest(&submitterJobPodSet.Template.ObjectMeta).Build()
+		if err != nil {
+			return nil, err
+		}
+		submitterJobPodSet.TopologyRequest = topologyRequest
+	}
+
+	return append(podSets, submitterJobPodSet), nil
 }
 
 func (j *RayJob) CanDefaultManagedBy() bool {
