@@ -19,7 +19,6 @@ package rayjob
 import (
 	"context"
 	"fmt"
-
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
@@ -29,10 +28,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"strings"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -54,7 +57,7 @@ const (
 func init() {
 	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:      SetupIndexes,
-		NewJob:            NewJob,
+		NewJob:            newJob,
 		NewReconciler:     NewReconciler,
 		SetupWebhook:      SetupRayJobWebhook,
 		JobType:           &rayv1.RayJob{},
@@ -74,16 +77,44 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 
-func NewJob() jobframework.GenericJob {
+type rayJobReconciler struct {
+	jr     *jobframework.JobReconciler
+	client client.Client
+}
+
+func newJob() jobframework.GenericJob {
 	return &RayJob{}
 }
 
-var NewReconciler = jobframework.NewGenericReconcilerFactory(
-	NewJob,
-	func(b *builder.Builder, c client.Client) *builder.Builder {
-		return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner()))
-	},
-)
+func setup(b *builder.Builder, c client.Client) *builder.Builder {
+	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner()))
+}
+
+var reconciler rayJobReconciler
+
+func NewReconciler(ctx context.Context, client client.Client, indexer client.FieldIndexer, eventRecorder record.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
+	reconciler = rayJobReconciler{
+		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
+		client: client,
+	}
+	return &reconciler, nil
+}
+
+func (r *rayJobReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	return r.jr.ReconcileGenericJob(ctx, req, newJob())
+}
+
+func (r *rayJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	controllerName := strings.ToLower(newJob().GVK().Kind)
+	b := ctrl.NewControllerManagedBy(mgr).
+		For(newJob().Object()).Owns(&kueue.Workload{}).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(r.jr.RoleTracker(), controllerName),
+		})
+	c := mgr.GetClient()
+	b = setup(b, c)
+	return b.Complete(r)
+}
 
 type RayJob rayv1.RayJob
 
@@ -178,13 +209,13 @@ func (j *RayJob) buildPodSetsFromRayJobSpec() ([]kueue.PodSet, error) {
 	return j.addSubmitterPodSet(podSets)
 }
 
-func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
+func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// If RayClusterName is set in status, try to fetch the RayCluster and get PodSets from it
 	if j.Status.RayClusterName != "" {
 		var rayClusterObj rayv1.RayCluster
-		err := c.Get(ctx, types.NamespacedName{
+		err := reconciler.client.Get(ctx, types.NamespacedName{
 			Namespace: j.Namespace,
 			Name:      j.Status.RayClusterName,
 		}, &rayClusterObj)
@@ -199,7 +230,7 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 		} else {
 			// Convert to raycluster.RayCluster and get PodSets
 			rc := (*raycluster.RayCluster)(&rayClusterObj)
-			podSets, err := rc.PodSets(ctx, c)
+			podSets, err := rc.PodSets(ctx, reconciler.client)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
 			}

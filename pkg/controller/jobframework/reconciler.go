@@ -769,15 +769,6 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 	return latest, nil
 }
 
-func hasAdmittedWorkload(workloads []kueue.Workload) bool {
-	for _, wl := range workloads {
-		if workload.IsAdmitted(&wl) {
-			return true
-		}
-	}
-	return false
-}
-
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
 // If manageJobsWithoutQueueName is set to false, it returns only Jobs with a queue-name.
 // If manageJobsWithoutQueueName is true, it may return a Job even if it doesn't have a queue-name.
