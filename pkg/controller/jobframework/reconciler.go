@@ -395,29 +395,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted.
 	if !isTopLevelJob {
-		_, _, finished := job.Finished(ctx)
-		if !finished && !job.IsSuspended() {
-			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
-				log.Error(err, "couldn't get an ancestor job workload")
+		if shouldSuspend, err := r.shouldSuspendChildJob(ctx, job, ancestorJob); err != nil {
+			return ctrl.Result{}, err
+		} else if shouldSuspend {
+			if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+				job.Suspend()
+				return true, nil
+			}); err != nil {
+				log.Error(err, "suspending child job failed")
 				return ctrl.Result{}, err
-			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
-				// Suspend job if neither the job nor its ancestor has workload slice enabled
-				// if workload slice enabled, we use scheduler gate thus not need to suspend
-				// Note: For child jobs (e.g., RayJob submitter), the elastic-job annotation is on
-				// the ancestor (RayJob), not on the child job itself, so we need to check both.
-				// Another condition is eviction, suspend the job if ancestor job is evicted.
-				hasWorkloadSlicing := WorkloadSliceEnabled(job) || (ancestorJob != nil && workloadslicing.Enabled(ancestorJob))
-				if !hasWorkloadSlicing || workload.IsEvicted(ancestorWorkload) {
-					if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
-						job.Suspend()
-						return true, nil
-					}); err != nil {
-						log.Error(err, "suspending child job failed")
-						return ctrl.Result{}, err
-					}
-					r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
-				}
 			}
+			r.record.Event(object, corev1.EventTypeNormal, ReasonSuspended, "Kueue managed child job suspended")
 		}
 		return ctrl.Result{}, nil
 	}
@@ -665,6 +653,28 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// workload is admitted and job is running, nothing to do.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
+}
+
+func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, job GenericJob, ancestorJob client.Object) (bool, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("job", job.Object().GetName(), "gvk", job.GVK())
+	_, _, finished := job.Finished(ctx)
+	if !finished && !job.IsSuspended() {
+		if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
+			log.Error(err, "couldn't get an ancestor job workload")
+			return false, err
+		} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
+			// Suspend job if neither the job nor its ancestor has workload slice enabled
+			// if workload slice enabled, we use scheduler gate thus not need to suspend
+			// Note: For child jobs (e.g., RayJob submitter), the elastic-job annotation is on
+			// the ancestor (RayJob), not on the child job itself, so we need to check both.
+			// Another condition is eviction, suspend the job if ancestor job is evicted.
+			hasWorkloadSlicing := WorkloadSliceEnabled(job) || (ancestorJob != nil && workloadslicing.Enabled(ancestorJob))
+			if !hasWorkloadSlicing || workload.IsEvicted(ancestorWorkload) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
