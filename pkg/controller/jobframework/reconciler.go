@@ -50,7 +50,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -724,32 +723,9 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// getWorkloadsForObject returns the Workloads associated with the given job.
-func (r *JobReconciler) getWorkloadsForObject(ctx context.Context, jobObj client.Object) ([]kueue.Workload, error) {
-	wls := kueue.WorkloadList{}
-	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
-		return nil, err
-	}
-
-	if len(wls.Items) == 0 {
-		return nil, nil
-	}
-
-	// In theory the job can own multiple Workloads, we cannot do too much about it, maybe log it.
-	if len(wls.Items) > 1 {
-		ctrl.LoggerFrom(ctx).V(2).Info(
-			"WARNING: The job has multiple associated Workloads",
-			"job", klog.KObj(jobObj),
-			"workloads", klog.KObjSlice(wls.Items),
-		)
-	}
-
-	return wls.Items, nil
-}
-
 // getWorkloadForObject returns the latest Workload associated with the given job.
 func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	workloads, err := r.getWorkloadsForObject(ctx, jobObj)
+	workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, jobObj, jobObj.GetObjectKind().GroupVersionKind())
 	if err != nil {
 		return nil, err
 	}
@@ -758,15 +734,9 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 		return nil, nil
 	}
 
-	// Find the latest workload based on creation time
-	latest := &workloads[0]
-	for i := 1; i < len(workloads); i++ {
-		if workloads[i].CreationTimestamp.After(latest.CreationTimestamp.Time) {
-			latest = &workloads[i]
-		}
-	}
-
-	return latest, nil
+	// `workloads` is already sorted as return value from `workloadslicing.FindNotFinishedWorkloads()`
+	// Return the last (latest) workload
+	return &workloads[len(workloads)-1], nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
