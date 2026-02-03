@@ -295,6 +295,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		// RayJob is top level job, the submitter job created by RayJob will not create its own workload, there will be only 1 workload
 		ginkgo.By("Waiting for 1 workloads", func() {
 			// 1 workload for the ray cluster
 			gomega.Eventually(func(g gomega.Gomega) {
