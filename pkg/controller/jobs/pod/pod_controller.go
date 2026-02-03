@@ -1070,7 +1070,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		p.list.Items = activePods[:len(activePods)-excessPodsCount]
 	}
 
-	podSets, err := jobframework.JobPodSets(ctx, c, p)
+	podSets, err := jobframework.JobPodSets(ctx, p)
 	if err != nil {
 		if jobframework.IsUnretryableError(err) {
 			r.Eventf(p.Object(), corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, err.Error())
