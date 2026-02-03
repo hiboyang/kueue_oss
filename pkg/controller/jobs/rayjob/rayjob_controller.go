@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -130,16 +129,6 @@ func (j *RayJob) PodLabelSelector() string {
 	return ""
 }
 
-// isRayClusterHeadPodReady checks if the RayCluster has the HeadPodReady condition set to True
-func isRayClusterHeadPodReady(rc *rayv1.RayCluster) bool {
-	for _, condition := range rc.Status.Conditions {
-		if condition.Type == string(rayv1.HeadPodReady) && condition.Status == metav1.ConditionTrue {
-			return true
-		}
-	}
-	return false
-}
-
 // buildPodSetsFromRayJobSpec builds PodSets from RayJob's RayClusterSpec
 func (j *RayJob) buildPodSetsFromRayJobSpec() ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
@@ -209,27 +198,21 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 					"rayCluster", j.Status.RayClusterName)
 			}
 		} else {
-			// Check if HeadPodReady condition is True
-			if isRayClusterHeadPodReady(&rayClusterObj) {
-				// Convert to raycluster.RayCluster and get PodSets
-				rc := (*raycluster.RayCluster)(&rayClusterObj)
-				podSets, err := rc.PodSets(ctx, c)
-				if err != nil {
-					return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
-				}
-				// submitter Job
-				podSets, err = j.addSubmitterPodSet(podSets)
-				if err != nil {
-					return nil, err
-				}
-				log.V(2).Info("Return RayJob PodSets from RayCluster",
-					"rayJob", j.Name,
-					"rayCluster", j.Status.RayClusterName)
-				return podSets, nil
-			} else {
-				log.V(2).Info("RayCluster HeadPodReady condition not met, using RayJob spec",
-					"rayCluster", j.Status.RayClusterName)
+			// Convert to raycluster.RayCluster and get PodSets
+			rc := (*raycluster.RayCluster)(&rayClusterObj)
+			podSets, err := rc.PodSets(ctx, c)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
 			}
+			// submitter Job
+			podSets, err = j.addSubmitterPodSet(podSets)
+			if err != nil {
+				return nil, err
+			}
+			log.V(2).Info("Return RayJob PodSets from RayCluster",
+				"rayJob", j.Name,
+				"rayCluster", j.Status.RayClusterName)
+			return podSets, nil
 		}
 	}
 
