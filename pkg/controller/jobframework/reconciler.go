@@ -398,17 +398,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if !isTopLevelJob {
 		_, _, finished := job.Finished(ctx)
 		if !finished && !job.IsSuspended() {
-			// TODO find out which workload for the ancestor job is currently used and use that workload
-			if ancestorWorkloads, err := r.getWorkloadsForObject(ctx, ancestorJob); err != nil {
+			if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
 				log.Error(err, "couldn't get an ancestor job workload")
 				return ctrl.Result{}, err
-			} else if len(ancestorWorkloads) == 0 || !hasAdmittedWorkload(ancestorWorkloads) {
-				// suspend job if neither the job nor its ancestor has workload slice enabled
+			} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
+				// Suspend job if neither the job nor its ancestor has workload slice enabled
 				// if workload slice enabled, we use scheduler gate thus not need to suspend
 				// Note: For child jobs (e.g., RayJob submitter), the elastic-job annotation is on
 				// the ancestor (RayJob), not on the child job itself, so we need to check both.
-				ancestorHasWorkloadSlicing := ancestorJob != nil && workloadslicing.Enabled(ancestorJob)
-				if !WorkloadSliceEnabled(job) && !ancestorHasWorkloadSlicing {
+				// Another condition is eviction, suspend the job if ancestor job is evicted.
+				hasWorkloadSlicing := WorkloadSliceEnabled(job) || (ancestorJob != nil && workloadslicing.Enabled(ancestorJob))
+				if !hasWorkloadSlicing || workload.IsEvicted(ancestorWorkload) {
 					if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 						job.Suspend()
 						return true, nil
@@ -724,7 +724,7 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// getWorkloadForObject returns the Workload associated with the given job.
+// getWorkloadsForObject returns the Workloads associated with the given job.
 func (r *JobReconciler) getWorkloadsForObject(ctx context.Context, jobObj client.Object) ([]kueue.Workload, error) {
 	wls := kueue.WorkloadList{}
 	if err := r.client.List(ctx, &wls, client.InNamespace(jobObj.GetNamespace()), client.MatchingFields{indexer.OwnerReferenceUID: string(jobObj.GetUID())}); client.IgnoreNotFound(err) != nil {
@@ -745,6 +745,28 @@ func (r *JobReconciler) getWorkloadsForObject(ctx context.Context, jobObj client
 	}
 
 	return wls.Items, nil
+}
+
+// getWorkloadForObject returns the latest Workload associated with the given job.
+func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+	workloads, err := r.getWorkloadsForObject(ctx, jobObj)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(workloads) == 0 {
+		return nil, nil
+	}
+
+	// Find the latest workload based on creation time
+	latest := &workloads[0]
+	for i := 1; i < len(workloads); i++ {
+		if workloads[i].CreationTimestamp.After(latest.CreationTimestamp.Time) {
+			latest = &workloads[i]
+		}
+	}
+
+	return latest, nil
 }
 
 func hasAdmittedWorkload(workloads []kueue.Workload) bool {

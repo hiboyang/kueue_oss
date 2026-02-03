@@ -194,8 +194,7 @@ func (j *RayJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, 
 				log.Info("RayCluster does not exist, falling back to RayJob spec",
 					"rayCluster", j.Status.RayClusterName)
 			} else {
-				log.Error(err, "Failed to get RayCluster, falling back to RayJob spec",
-					"rayCluster", j.Status.RayClusterName)
+				return nil, fmt.Errorf("failed to get RayCluster %s: %w", j.Status.RayClusterName, err)
 			}
 		} else {
 			// Convert to raycluster.RayCluster and get PodSets
