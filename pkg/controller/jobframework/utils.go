@@ -30,7 +30,7 @@ import (
 // JobPodSets retrieves the pod sets from a GenericJob and applies environment variable
 // deduplication if the SanitizePodSets feature gate is enabled.
 func JobPodSets(ctx context.Context, c client.Client, job GenericJob) ([]kueue.PodSet, error) {
-	podSets, err := job.PodSets(ctx, c)
+	podSets, err := job.PodSets(ctx)
 	if err != nil {
 		return nil, err
 	}

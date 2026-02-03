@@ -19,6 +19,8 @@ package rayjob
 import (
 	"context"
 	"fmt"
+	"strings"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
@@ -34,14 +36,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	"strings"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 var (
@@ -209,7 +210,7 @@ func (j *RayJob) buildPodSetsFromRayJobSpec() ([]kueue.PodSet, error) {
 	return j.addSubmitterPodSet(podSets)
 }
 
-func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
+func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// If RayClusterName is set in status, try to fetch the RayCluster and get PodSets from it
@@ -230,7 +231,7 @@ func (j *RayJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 		} else {
 			// Convert to raycluster.RayCluster and get PodSets
 			rc := (*raycluster.RayCluster)(&rayClusterObj)
-			podSets, err := rc.PodSets(ctx, reconciler.client)
+			podSets, err := rc.PodSets(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get PodSets from RayCluster %s: %w", j.Status.RayClusterName, err)
 			}
