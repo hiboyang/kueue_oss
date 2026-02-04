@@ -59,6 +59,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -314,10 +315,49 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
 				}
 			}
+		} else {
+			// If no owner reference, try to find jobs that have PrebuiltWorkloadLabel pointing to this workload
+			rc.deleteJobsByPrebuiltWorkloadLabel(ctx, wlLog, remoteWl.Name, remoteWl.Namespace)
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
 		if err := rc.client.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
 			wlLog.Error(err, "Deleting remote workload")
+		}
+	}
+}
+
+// deleteJobsByPrebuiltWorkloadLabel finds and deletes jobs that have PrebuiltWorkloadLabel
+// matching the given workload name. This is used when the workload doesn't have an owner
+// reference (which can happen with external adapters where the job controller on the worker
+// may not set the owner reference).
+func (rc *remoteClient) deleteJobsByPrebuiltWorkloadLabel(ctx context.Context, wlLog klog.Logger, workloadName, namespace string) {
+	for adapterKey, adapter := range rc.adapters {
+		watcher, isWatcher := adapter.(jobframework.MultiKueueWatcher)
+		if !isWatcher {
+			continue
+		}
+
+		list := watcher.GetEmptyList()
+		if err := rc.client.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{constants.PrebuiltWorkloadLabel: workloadName}); err != nil {
+			wlLog.V(2).Error(err, "Failed to list jobs by PrebuiltWorkloadLabel", "adapterKey", adapterKey)
+			continue
+		}
+
+		items, err := apimeta.ExtractList(list)
+		if err != nil {
+			wlLog.V(2).Error(err, "Failed to extract list items", "adapterKey", adapterKey)
+			continue
+		}
+
+		for _, item := range items {
+			obj, ok := item.(client.Object)
+			if !ok {
+				continue
+			}
+			wlLog.V(5).Info("MultiKueueGC deleting job by PrebuiltWorkloadLabel", "adapterKey", adapterKey, "job", klog.KObj(obj))
+			if err := adapter.DeleteRemoteObject(ctx, rc.client, types.NamespacedName{Name: obj.GetName(), Namespace: obj.GetNamespace()}); client.IgnoreNotFound(err) != nil {
+				wlLog.Error(err, "Failed to delete job by PrebuiltWorkloadLabel", "adapterKey", adapterKey, "job", klog.KObj(obj))
+			}
 		}
 	}
 }
