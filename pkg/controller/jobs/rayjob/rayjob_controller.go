@@ -223,7 +223,7 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		if err != nil {
 			// Check if the error is a NotFound error
 			if apierrors.IsNotFound(err) {
-				log.Info("RayCluster does not exist, falling back to RayJob spec",
+				log.V(2).Info("RayCluster does not exist, falling back to RayJob spec",
 					"rayCluster", j.Status.RayClusterName)
 			} else {
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", j.Status.RayClusterName, err)
