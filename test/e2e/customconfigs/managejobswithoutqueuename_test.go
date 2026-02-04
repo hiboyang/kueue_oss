@@ -17,6 +17,8 @@ limitations under the License.
 package customconfigse2e
 
 import (
+	"slices"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -26,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	"k8s.io/utils/strings/slices"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -906,13 +907,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("Check workload is deleted", func() {
-					wlLookupKey := types.NamespacedName{
-						Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
-						Namespace: ns.Name,
-					}
 					createdWorkload := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -968,13 +965,9 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
-				wlLookupKey := types.NamespacedName{
-					Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
-					Namespace: ns.Name,
-				}
 				createdWorkload := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
@@ -992,8 +985,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	ginkgo.BeforeAll(func() {
 		util.UpdateKueueConfiguration(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
-			cfg.Integrations.Frameworks = slices.Filter(nil, cfg.Integrations.Frameworks, func(framework string) bool {
-				return framework != jobset.FrameworkName
+			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(framework string) bool {
+				return framework == jobset.FrameworkName
 			})
 		})
 	})

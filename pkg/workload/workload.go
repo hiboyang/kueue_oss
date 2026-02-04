@@ -461,6 +461,13 @@ func Key(w *kueue.Workload) Reference {
 	return NewReference(w.Namespace, w.Name)
 }
 
+func GetLocalQueue(wl *kueue.Workload) kueue.LocalQueueName {
+	if wl == nil {
+		return ""
+	}
+	return wl.Spec.QueueName
+}
+
 func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
@@ -1060,7 +1067,7 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 		if updated, err := update(wlCopy); err != nil || !updated {
 			return err
 		}
-		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership)
+		err := c.Status().Patch(ctx, wlCopy, client.Apply, owner, client.ForceOwnership) //nolint:staticcheck //SA1019: client.Apply is deprecated
 		if err != nil {
 			return err
 		}
@@ -1163,6 +1170,13 @@ func IsActive(w *kueue.Workload) bool {
 // IsAdmissible returns true if the workload can be added to the queue.
 func IsAdmissible(w *kueue.Workload) bool {
 	return !IsFinished(w) && IsActive(w) && !HasQuotaReservation(w)
+}
+
+// HasActiveQuotaReservation returns true if the workload has an active quota
+// reservation that should be tracked for ClusterQueue usage. This requires the
+// workload to be active, not finished, and holding a quota reservation.
+func HasActiveQuotaReservation(w *kueue.Workload) bool {
+	return HasQuotaReservation(w) && !IsFinished(w) && IsActive(w)
 }
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
@@ -1429,9 +1443,9 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 		return err
 	}
 	priorityClassName := PriorityClassName(wl)
-	metrics.FinishedWorkload(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
+	metrics.IncrementFinishedWorkloadTotal(ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue, priorityClassName, tracker)
 	if features.Enabled(features.LocalQueueMetrics) {
-		metrics.LocalQueueFinishedWorkload(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
+		metrics.IncrementLocalQueueFinishedWorkloadTotal(metrics.LQRefFromWorkload(wl), priorityClassName, tracker)
 	}
 	return nil
 }
