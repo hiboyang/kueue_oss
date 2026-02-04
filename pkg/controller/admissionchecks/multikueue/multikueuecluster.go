@@ -327,11 +327,9 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 }
 
 // deleteJobsByPrebuiltWorkloadLabel finds and deletes jobs that have PrebuiltWorkloadLabel
-// matching the given workload name. This is required for external frameworks where the job
-// reconciler does not run on worker clusters, so remote workloads do not get owner references.
-// matching the given workload name. This is used when the workload doesn't have an owner
-// reference (which can happen with external adapters where the job controller on the worker
-// may not set the owner reference).
+// matching the given workload name. Remote workloads do not get owner references when copied
+// from management cluster to worker cluster. During garbage collection, we can use this method
+// to delete remote jobs by PrebuiltWorkloadLabel.
 func (rc *remoteClient) deleteJobsByPrebuiltWorkloadLabel(ctx context.Context, wlLog klog.Logger, workloadName, namespace string) {
 	for adapterKey, adapter := range rc.adapters {
 		watcher, isWatcher := adapter.(jobframework.MultiKueueWatcher)
