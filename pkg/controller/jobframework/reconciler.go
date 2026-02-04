@@ -665,12 +665,12 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, job GenericJo
 			return false, err
 		} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
 			// Suspend job if neither the job nor its ancestor has workload slice enabled
-			// if workload slice enabled, we use scheduler gate thus not need to suspend
+			// if workload slice enabled, we use scheduler gate thus not need to suspend.
 			// Note: For child jobs (e.g., RayJob submitter), the elastic-job annotation is on
 			// the ancestor (RayJob), not on the child job itself, so we need to check both.
 			// Another condition is eviction, suspend the job if ancestor job is evicted.
 			hasWorkloadSlicing := WorkloadSliceEnabled(job) || (ancestorJob != nil && workloadslicing.Enabled(ancestorJob))
-			if !hasWorkloadSlicing || workload.IsEvicted(ancestorWorkload) {
+			if !hasWorkloadSlicing || (ancestorWorkload != nil && workload.IsEvicted(ancestorWorkload)) {
 				return true, nil
 			}
 		}
