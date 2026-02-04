@@ -41,6 +41,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -735,7 +736,11 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 
 // getWorkloadForObject returns the latest Workload associated with the given job.
 func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, jobObj, jobObj.GetObjectKind().GroupVersionKind())
+	gvk, err := apiutil.GVKForObject(jobObj, r.client.Scheme())
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, jobObj, gvk)
 	if err != nil {
 		return nil, err
 	}
