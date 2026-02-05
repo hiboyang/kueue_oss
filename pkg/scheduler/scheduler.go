@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -50,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -657,6 +659,35 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			// Record metrics and events for quota reservation and admission
 			s.recordWorkloadAdmissionMetrics(newWorkload, e.Obj, admission, consideredStr)
 
+			// Remove the WorkloadSliceToBeReplacedBy annotation from the old workload slice
+			// now that the new workload has been successfully admitted
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+				if oldWorkloadRef := workloadslicing.ReplacementForKey(newWorkload); oldWorkloadRef != nil {
+					// Parse the workload reference (format: "namespace/name")
+					parts := strings.Split(string(*oldWorkloadRef), "/")
+					if len(parts) == 2 {
+						// Fetch the old workload
+						oldWorkload := &kueue.Workload{}
+						if err := s.client.Get(ctx, client.ObjectKey{
+							Namespace: parts[0],
+							Name:      parts[1],
+						}, oldWorkload); err != nil {
+							if !apierrors.IsNotFound(err) {
+								log.V(2).Info("Failed to fetch old workload for annotation removal", "oldWorkload", *oldWorkloadRef, "error", err)
+							}
+						} else {
+							// Remove the WorkloadSliceToBeReplacedBy annotation
+							if err := clientutil.Patch(ctx, s.client, oldWorkload, func() (bool, error) {
+								delete(oldWorkload.Annotations, workloadslicing.WorkloadSliceToBeReplacedBy)
+								return true, nil
+							}); err != nil {
+								log.V(2).Info("Failed to remove WorkloadSliceToBeReplacedBy annotation from old workload", "oldWorkload", *oldWorkloadRef, "error", err)
+							}
+						}
+					}
+				}
+			}
+
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
 			return
 		}
@@ -881,17 +912,29 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(newWorkload, originalWorkload 
 // This function performs the following steps:
 //  1. Checks if the old workload slice is already finished by inspecting the "Finished" condition in its status.
 //     If the slice is already finished, the function logs a message and returns early.
-//  2. If the old slice is not finished, it deactivates the old slice and marks it with a "Finished" condition,
+//  2. Adds the WorkloadSliceToBeReplacedBy annotation to the old slice to track which new workload
+//     slice will replace it during the admission process. This annotation will be removed after the
+//     new workload is successfully admitted.
+//  3. If the old slice is not finished, it deactivates the old slice and marks it with a "Finished" condition,
 //     indicating that the slice was replaced to accommodate the new workload slice.
-//  3. The function logs details about the replacement, including the reason for the removal and the associated message.
-//  4. An event is recorded for the old slice to indicate that the slice was aggregated (replaced) by the new slice.
-//  5. The function reports metrics for the aggregation of workload slices for the old queue.
+//  4. The function logs details about the replacement, including the reason for the removal and the associated message.
+//  5. An event is recorded for the old slice to indicate that the slice was aggregated (replaced) by the new slice.
+//  6. The function reports metrics for the aggregation of workload slices for the old queue.
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workload.IsFinished(oldSlice) {
 		log.V(3).Info("Workload slice already finished", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
 		return nil
 	}
+
+	// Add annotation to track which new workload slice will replace this old slice
+	metav1.SetMetaDataAnnotation(&oldSlice.ObjectMeta, workloadslicing.WorkloadSliceToBeReplacedBy, string(workload.Key(newSlice)))
+
+	// Update the workload to persist the annotation
+	if err := s.client.Update(ctx, oldSlice); err != nil {
+		return fmt.Errorf("failed to update workload annotation: %w", err)
+	}
+
 	reason := kueue.WorkloadSliceReplaced
 	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
 	if err := workload.Finish(ctx, s.client, oldSlice, reason, message, s.clock, s.roleTracker); err != nil {
