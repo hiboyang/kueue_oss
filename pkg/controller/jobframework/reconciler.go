@@ -669,38 +669,12 @@ func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob Gene
 	log := ctrl.LoggerFrom(ctx).WithValues("childJob", childJob.Object().GetName(), "gvk", childJob.GVK(), "ancestorJob", ancestorJob.GetName())
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {
-		// Get GVK for the ancestor job
-		gvk, err := apiutil.GVKForObject(ancestorJob, r.client.Scheme())
-		if err != nil {
-			log.Error(err, "couldn't get GVK for ancestor job")
+		if ancestorAdmittedWorkload, err := r.getLatestAdmittedWorkloadForObject(ctx, ancestorJob); err != nil {
+			log.Error(err, "couldn't get an ancestor job admitted workload")
 			return false, err
+		} else {
+			return ancestorAdmittedWorkload == nil, nil
 		}
-
-		// Find all not-finished workloads for the ancestor job
-		workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, ancestorJob, gvk)
-		if err != nil {
-			log.Error(err, "couldn't find workloads for ancestor job")
-			return false, err
-		}
-
-		// Check workloads in reverse order (most recent first)
-		for i := len(workloads) - 1; i >= 0; i-- {
-			wl := &workloads[i]
-
-			// If workload is admitted, don't suspend
-			if workload.IsAdmitted(wl) {
-				return false, nil
-			}
-
-			// If workload has WorkloadSliceToBeReplacedBy annotation, don't suspend
-			// This means a replacement workload is being admitted
-			if replacedBy, hasAnnotation := wl.GetAnnotations()[workloadslicing.WorkloadSliceToBeReplacedBy]; hasAnnotation && replacedBy != "" {
-				return false, nil
-			}
-		}
-
-		// No admitted workload or workload being replaced found, should suspend
-		return true, nil
 	}
 	return false, nil
 }
@@ -759,6 +733,30 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 			r.record.Eventf(object, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, message)
 		}
 	}
+}
+
+// getLatestAdmittedWorkloadForObject returns the latest admitted Workload associated with the given job.
+// Returns nil if no admitted workload is found.
+func (r *JobReconciler) getLatestAdmittedWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+	gvk, err := apiutil.GVKForObject(jobObj, r.client.Scheme())
+	if err != nil {
+		return nil, err
+	}
+	workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, jobObj, gvk)
+	if err != nil {
+		return nil, err
+	}
+
+	// `workloads` is already sorted as return value from `workloadslicing.FindNotFinishedWorkloads()`
+	// Iterate backwards to find the latest admitted workload
+	for i := len(workloads) - 1; i >= 0; i-- {
+		if workload.IsAdmitted(&workloads[i]) {
+			return &workloads[i], nil
+		}
+	}
+
+	// No admitted workload found
+	return nil, nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
