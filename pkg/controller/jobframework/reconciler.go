@@ -665,23 +665,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	return ctrl.Result{}, nil
 }
 
-func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, job GenericJob, ancestorJob client.Object) (bool, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("job", job.Object().GetName(), "gvk", job.GVK())
-	_, _, finished := job.Finished(ctx)
-	if !finished && !job.IsSuspended() {
-		if ancestorWorkload, err := r.getWorkloadForObject(ctx, ancestorJob); err != nil {
-			log.Error(err, "couldn't get an ancestor job workload")
+func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob GenericJob, ancestorJob client.Object) (bool, error) {
+	log := ctrl.LoggerFrom(ctx).WithValues("childJob", childJob.Object().GetName(), "gvk", childJob.GVK(), "ancestorJob", ancestorJob.GetName())
+	_, _, finished := childJob.Finished(ctx)
+	if !finished && !childJob.IsSuspended() {
+		if ancestorAdmittedWorkload, err := r.getLatestAdmittedWorkloadForObject(ctx, ancestorJob); err != nil {
+			log.Error(err, "couldn't get an ancestor job admitted workload")
 			return false, err
-		} else if ancestorWorkload == nil || !workload.IsAdmitted(ancestorWorkload) {
-			// Suspend job if neither the job nor its ancestor has workload slice enabled
-			// if workload slice enabled, we use scheduler gate thus not need to suspend.
-			// Note: For child jobs (e.g., RayJob submitter), the elastic-job annotation is on
-			// the ancestor (RayJob), not on the child job itself, so we need to check both.
-			// Another condition is eviction, suspend the job if ancestor job is evicted.
-			hasWorkloadSlicing := WorkloadSliceEnabled(job) || (ancestorJob != nil && workloadslicing.Enabled(ancestorJob))
-			if !hasWorkloadSlicing || (ancestorWorkload != nil && workload.IsEvicted(ancestorWorkload)) {
-				return true, nil
-			}
+		} else {
+			return ancestorAdmittedWorkload == nil, nil
 		}
 	}
 	return false, nil
@@ -743,8 +735,9 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 	}
 }
 
-// getWorkloadForObject returns the latest Workload associated with the given job.
-func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
+// getLatestAdmittedWorkloadForObject returns the latest admitted Workload associated with the given job.
+// Returns nil if no admitted workload is found.
+func (r *JobReconciler) getLatestAdmittedWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
 	gvk, err := apiutil.GVKForObject(jobObj, r.client.Scheme())
 	if err != nil {
 		return nil, err
@@ -754,13 +747,16 @@ func (r *JobReconciler) getWorkloadForObject(ctx context.Context, jobObj client.
 		return nil, err
 	}
 
-	if len(workloads) == 0 {
-		return nil, nil
+	// `workloads` is already sorted as return value from `workloadslicing.FindNotFinishedWorkloads()`
+	// Iterate backwards to find the latest admitted workload
+	for i := len(workloads) - 1; i >= 0; i-- {
+		if workload.IsAdmitted(&workloads[i]) {
+			return &workloads[i], nil
+		}
 	}
 
-	// `workloads` is already sorted as return value from `workloadslicing.FindNotFinishedWorkloads()`
-	// Return the last (latest) workload
-	return &workloads[len(workloads)-1], nil
+	// No admitted workload found
+	return nil, nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
