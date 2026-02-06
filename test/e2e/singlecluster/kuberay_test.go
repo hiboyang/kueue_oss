@@ -28,6 +28,7 @@ import (
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -319,16 +321,129 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// Wait 60 seconds and print kueue controller logs before checking RayJob cluster ready
-		ginkgo.By("Waiting 60 seconds and printing kueue controller logs", func() {
-			ginkgo.GinkgoLogr.Info("Waiting 60 seconds before printing kueue controller logs...")
+		// Wait 60 seconds and print debug information before checking RayJob cluster ready
+		ginkgo.By("Waiting 60 seconds and printing debug information", func() {
+			ginkgo.GinkgoLogr.Info("Waiting 60 seconds before printing debug information...")
 			time.Sleep(60 * time.Second)
 
-			// Get all pods in kueue-system namespace
-			podList := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace("kueue-system"))).To(gomega.Succeed())
+			// Print all ClusterQueues with full YAML
+			ginkgo.GinkgoLogr.Info("=== All ClusterQueues ===")
+			cqList := &kueue.ClusterQueueList{}
+			if err := k8sClient.List(ctx, cqList); err != nil {
+				ginkgo.GinkgoLogr.Error(err, "Failed to list ClusterQueues")
+			} else {
+				for _, item := range cqList.Items {
+					yamlBytes, err := yaml.Marshal(item)
+					if err != nil {
+						ginkgo.GinkgoLogr.Error(err, "Failed to marshal ClusterQueue", "name", item.Name)
+					} else {
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("ClusterQueue %s:\n%s", item.Name, string(yamlBytes)))
+					}
+				}
+			}
+			ginkgo.GinkgoLogr.Info("=== End of ClusterQueues ===")
 
-			for _, pod := range podList.Items {
+			// Print all Workloads with full YAML
+			ginkgo.GinkgoLogr.Info("=== All Workloads ===")
+			wlList := &kueue.WorkloadList{}
+			if err := k8sClient.List(ctx, wlList); err != nil {
+				ginkgo.GinkgoLogr.Error(err, "Failed to list Workloads")
+			} else {
+				for _, item := range wlList.Items {
+					yamlBytes, err := yaml.Marshal(item)
+					if err != nil {
+						ginkgo.GinkgoLogr.Error(err, "Failed to marshal Workload", "name", item.Name, "namespace", item.Namespace)
+					} else {
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("Workload %s/%s:\n%s", item.Namespace, item.Name, string(yamlBytes)))
+					}
+				}
+			}
+			ginkgo.GinkgoLogr.Info("=== End of Workloads ===")
+
+			// Print all RayJobs with full YAML
+			ginkgo.GinkgoLogr.Info("=== All RayJobs ===")
+			rayJobList := &rayv1.RayJobList{}
+			if err := k8sClient.List(ctx, rayJobList); err != nil {
+				ginkgo.GinkgoLogr.Error(err, "Failed to list RayJobs")
+			} else {
+				for _, item := range rayJobList.Items {
+					yamlBytes, err := yaml.Marshal(item)
+					if err != nil {
+						ginkgo.GinkgoLogr.Error(err, "Failed to marshal RayJob", "name", item.Name, "namespace", item.Namespace)
+					} else {
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayJob %s/%s:\n%s", item.Namespace, item.Name, string(yamlBytes)))
+					}
+				}
+			}
+			ginkgo.GinkgoLogr.Info("=== End of RayJobs ===")
+
+			// Print all batch/Jobs with full YAML
+			ginkgo.GinkgoLogr.Info("=== All batch/Jobs ===")
+			jobList := &batchv1.JobList{}
+			if err := k8sClient.List(ctx, jobList); err != nil {
+				ginkgo.GinkgoLogr.Error(err, "Failed to list Jobs")
+			} else {
+				for _, item := range jobList.Items {
+					yamlBytes, err := yaml.Marshal(item)
+					if err != nil {
+						ginkgo.GinkgoLogr.Error(err, "Failed to marshal Job", "name", item.Name, "namespace", item.Namespace)
+					} else {
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("Job %s/%s:\n%s", item.Namespace, item.Name, string(yamlBytes)))
+					}
+				}
+			}
+			ginkgo.GinkgoLogr.Info("=== End of batch/Jobs ===")
+
+			// List all pods and their status
+			ginkgo.GinkgoLogr.Info("=== All Pods Status ===")
+			allPodList := &corev1.PodList{}
+			if err := k8sClient.List(ctx, allPodList); err != nil {
+				ginkgo.GinkgoLogr.Error(err, "Failed to list all pods")
+			} else {
+				for _, pod := range allPodList.Items {
+					ginkgo.GinkgoLogr.Info(fmt.Sprintf("Pod %s/%s: Phase=%s, Conditions=%v",
+						pod.Namespace, pod.Name, pod.Status.Phase, pod.Status.Conditions))
+				}
+			}
+			ginkgo.GinkgoLogr.Info("=== End of All Pods Status ===")
+
+			// Print logs for pods with "ray" in name
+			ginkgo.GinkgoLogr.Info("=== Logs for Ray Pods ===")
+			for _, pod := range allPodList.Items {
+				if strings.Contains(strings.ToLower(pod.Name), "ray") {
+					for _, container := range pod.Spec.Containers {
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("=== Logs for ray pod %s/%s, container %s ===", pod.Namespace, pod.Name, container.Name))
+
+						req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &corev1.PodLogOptions{
+							Container: container.Name,
+						})
+						logStream, err := req.Stream(context.Background())
+						if err != nil {
+							ginkgo.GinkgoLogr.Error(err, "Failed to get logs", "pod", pod.Name, "container", container.Name)
+							continue
+						}
+
+						buf := new(bytes.Buffer)
+						_, err = io.Copy(buf, logStream)
+						logStream.Close()
+						if err != nil {
+							ginkgo.GinkgoLogr.Error(err, "Failed to read logs", "pod", pod.Name, "container", container.Name)
+							continue
+						}
+
+						ginkgo.GinkgoLogr.Info(buf.String())
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("=== End of logs for ray pod %s/%s, container %s ===", pod.Namespace, pod.Name, container.Name))
+					}
+				}
+			}
+			ginkgo.GinkgoLogr.Info("=== End of Logs for Ray Pods ===")
+
+			// Print logs for kueue controller pods
+			ginkgo.GinkgoLogr.Info("=== Logs for Kueue Controller Pods ===")
+			kueuePodList := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, kueuePodList, client.InNamespace("kueue-system"))).To(gomega.Succeed())
+
+			for _, pod := range kueuePodList.Items {
 				if strings.Contains(pod.Name, "kueue-controller-manager") {
 					for _, container := range pod.Spec.Containers {
 						ginkgo.GinkgoLogr.Info(fmt.Sprintf("=== Logs for pod %s, container %s ===", pod.Name, container.Name))
@@ -341,10 +456,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 							ginkgo.GinkgoLogr.Error(err, "Failed to get logs", "pod", pod.Name, "container", container.Name)
 							continue
 						}
-						defer logStream.Close()
 
 						buf := new(bytes.Buffer)
 						_, err = io.Copy(buf, logStream)
+						logStream.Close()
 						if err != nil {
 							ginkgo.GinkgoLogr.Error(err, "Failed to read logs", "pod", pod.Name, "container", container.Name)
 							continue
@@ -355,6 +470,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 					}
 				}
 			}
+			ginkgo.GinkgoLogr.Info("=== End of Logs for Kueue Controller Pods ===")
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
