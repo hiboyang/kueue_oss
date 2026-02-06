@@ -17,16 +17,23 @@ limitations under the License.
 package e2e
 
 import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -159,6 +166,46 @@ var _ = ginkgo.Describe("Kuberay", func() {
 	ginkgo.It("Should run a rayjob with InTreeAutoscaling", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
+		// Create kubernetes clientset for pod logs
+		clientset, err := kubernetes.NewForConfig(cfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Update kueue-controller-manager deployment to change log level from 2 to 12
+		ginkgo.By("Updating kueue-controller-manager deployment log level to 12", func() {
+			deployKey := types.NamespacedName{
+				Name:      "kueue-controller-manager",
+				Namespace: "kueue-system",
+			}
+			deploy := &appsv1.Deployment{}
+			gomega.Expect(k8sClient.Get(ctx, deployKey, deploy)).To(gomega.Succeed())
+
+			// Find and update the --zap-log-level argument
+			for i := range deploy.Spec.Template.Spec.Containers {
+				container := &deploy.Spec.Template.Spec.Containers[i]
+				for j, arg := range container.Args {
+					if strings.HasPrefix(arg, "--zap-log-level=") {
+						container.Args[j] = "--zap-log-level=12"
+					}
+				}
+			}
+
+			gomega.Expect(k8sClient.Update(ctx, deploy)).To(gomega.Succeed())
+		})
+
+		// Wait for the deployment to be ready after the update
+		ginkgo.By("Waiting for kueue-controller-manager deployment to be ready after log level update", func() {
+			deployKey := types.NamespacedName{
+				Name:      "kueue-controller-manager",
+				Namespace: "kueue-system",
+			}
+			gomega.Eventually(func(g gomega.Gomega) {
+				deploy := &appsv1.Deployment{}
+				g.Expect(k8sClient.Get(ctx, deployKey, deploy)).To(gomega.Succeed())
+				g.Expect(deploy.Status.ReadyReplicas).To(gomega.Equal(*deploy.Spec.Replicas))
+				g.Expect(deploy.Status.AvailableReplicas).To(gomega.Equal(*deploy.Spec.Replicas))
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		// Create ConfigMap with Python script
 		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
@@ -270,6 +317,44 @@ print([ray.get(my_task.remote(i, 1)) for i in range(16)])`,
 				}
 				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Wait 60 seconds and print kueue controller logs before checking RayJob cluster ready
+		ginkgo.By("Waiting 60 seconds and printing kueue controller logs", func() {
+			ginkgo.GinkgoLogr.Info("Waiting 60 seconds before printing kueue controller logs...")
+			time.Sleep(60 * time.Second)
+
+			// Get all pods in kueue-system namespace
+			podList := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, podList, client.InNamespace("kueue-system"))).To(gomega.Succeed())
+
+			for _, pod := range podList.Items {
+				if strings.Contains(pod.Name, "kueue-controller-manager") {
+					for _, container := range pod.Spec.Containers {
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("=== Logs for pod %s, container %s ===", pod.Name, container.Name))
+
+						req := clientset.CoreV1().Pods("kueue-system").GetLogs(pod.Name, &corev1.PodLogOptions{
+							Container: container.Name,
+						})
+						logStream, err := req.Stream(context.Background())
+						if err != nil {
+							ginkgo.GinkgoLogr.Error(err, "Failed to get logs", "pod", pod.Name, "container", container.Name)
+							continue
+						}
+						defer logStream.Close()
+
+						buf := new(bytes.Buffer)
+						_, err = io.Copy(buf, logStream)
+						if err != nil {
+							ginkgo.GinkgoLogr.Error(err, "Failed to read logs", "pod", pod.Name, "container", container.Name)
+							continue
+						}
+
+						ginkgo.GinkgoLogr.Info(buf.String())
+						ginkgo.GinkgoLogr.Info(fmt.Sprintf("=== End of logs for pod %s, container %s ===", pod.Name, container.Name))
+					}
+				}
+			}
 		})
 
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
