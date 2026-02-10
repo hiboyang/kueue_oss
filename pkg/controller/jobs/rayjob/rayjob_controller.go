@@ -39,7 +39,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -277,8 +276,7 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		}
 	}
 
-	// Fall back to building PodSets from RayJob spec
-	return j.buildPodSetsFromRayJobSpec()
+	return podSets, nil
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
