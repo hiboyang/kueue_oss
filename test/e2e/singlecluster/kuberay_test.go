@@ -35,7 +35,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -514,10 +513,30 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
-		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
-		createdWorkload := &kueue.Workload{}
-		ginkgo.By("Checking workload is created", func() {
+		// RayService creates an underlying RayCluster, and the workload is created for that RayCluster
+		var rayCluster *rayv1.RayCluster
+		ginkgo.By("Waiting for RayService to create a RayCluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := &rayv1.RayService{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+				rayClusterName := createdRayService.Status.PendingServiceStatus.RayClusterName
+				if rayClusterName == "" {
+					rayClusterName = createdRayService.Status.ActiveServiceStatus.RayClusterName
+				}
+				g.Expect(rayClusterName).NotTo(gomega.BeEmpty(), "RayCluster name should be set in RayService status")
+
+				rayCluster = &rayv1.RayCluster{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: rayClusterName, Namespace: ns.Name}, rayCluster)).To(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is created for the RayCluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wlLookupKey := types.NamespacedName{
+					Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+					Namespace: ns.Name,
+				}
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
