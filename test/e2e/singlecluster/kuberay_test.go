@@ -496,6 +496,30 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 	ginkgo.It("Should run a RayService if admitted", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
+		// Create ConfigMap with a simple Ray Serve application
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "rayservice-serve-app",
+				Namespace: ns.Name,
+			},
+			Data: map[string]string{
+				"hello_serve.py": `from ray import serve
+
+@serve.deployment
+class HelloWorld:
+    def __call__(self, request):
+        return "Hello, World!"
+
+app = HelloWorld.bind()`,
+			},
+		}
+
+		// serveConfigV2 configuration for the simple serve app
+		serveConfigV2 := `applications:
+  - name: hello_app
+    import_path: hello_serve:app
+    route_prefix: /`
+
 		rayService := testingrayservice.MakeService("rayservice", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
@@ -503,11 +527,36 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "300m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
+			WithServeConfigV2(serveConfigV2).
 			Obj()
+
+		// Add volume and volumeMount to head node for the ConfigMap
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "serve-app-volume",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "rayservice-serve-app",
+						},
+					},
+				},
+			},
+		}
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+			{
+				Name:      "serve-app-volume",
+				MountPath: "/home/ray",
+			},
+		}
 
 		// Print debug info on test failure
 		ginkgo.DeferCleanup(func() {
 			dumpDebugInfoOnFailure(ns.Name)
+		})
+
+		ginkgo.By("Creating the ConfigMap", func() {
+			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Creating the RayService", func() {
