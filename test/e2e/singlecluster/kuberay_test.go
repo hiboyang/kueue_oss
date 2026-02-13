@@ -499,7 +499,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		// Create ConfigMap with a simple Ray Serve application
 		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayservice-serve-app",
+				Name:      "rayservice-hello",
 				Namespace: ns.Name,
 			},
 			Data: map[string]string{
@@ -518,9 +518,15 @@ app = HelloWorld.bind()`,
 		serveConfigV2 := `applications:
   - name: hello_app
     import_path: hello_serve:app
-    route_prefix: /`
+    route_prefix: /
+    deployments:
+      - name: HelloWorld
+        num_replicas: 1
+        max_replicas_per_node: 1
+        ray_actor_options:
+          num_cpus: 0.2`
 
-		rayService := testingrayservice.MakeService("rayservice", ns.Name).
+		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "300m").
@@ -530,14 +536,29 @@ app = HelloWorld.bind()`,
 			WithServeConfigV2(serveConfigV2).
 			Obj()
 
-		// Add volume and volumeMount to head node for the ConfigMap
+		// Add object-store-memory to head rayStartParams
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.RayStartParams["object-store-memory"] = "100000000"
+
+		// Add PYTHONPATH environment variable and volume/volumeMount to head node
+		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
+			{
+				Name:  "PYTHONPATH",
+				Value: "/home/ray/samples:$PYTHONPATH",
+			},
+		}
 		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Volumes = []corev1.Volume{
 			{
-				Name: "serve-app-volume",
+				Name: "code-sample",
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayservice-serve-app",
+							Name: "rayservice-hello",
+						},
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "hello_serve.py",
+								Path: "hello_serve.py",
+							},
 						},
 					},
 				},
@@ -545,8 +566,45 @@ app = HelloWorld.bind()`,
 		}
 		rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
 			{
-				Name:      "serve-app-volume",
-				MountPath: "/home/ray",
+				Name:      "code-sample",
+				MountPath: "/home/ray/samples",
+			},
+		}
+
+		// Configure worker group with minReplicas and maxReplicas
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
+
+		// Add PYTHONPATH environment variable and volume/volumeMount to worker node
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].Env = []corev1.EnvVar{
+			{
+				Name:  "PYTHONPATH",
+				Value: "/home/ray/samples:$PYTHONPATH",
+			},
+		}
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Volumes = []corev1.Volume{
+			{
+				Name: "code-sample",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "rayservice-hello",
+						},
+						Items: []corev1.KeyToPath{
+							{
+								Key:  "hello_serve.py",
+								Path: "hello_serve.py",
+							},
+						},
+					},
+				},
+			},
+		}
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{
+			{
+				Name:      "code-sample",
+				MountPath: "/home/ray/samples",
 			},
 		}
 
