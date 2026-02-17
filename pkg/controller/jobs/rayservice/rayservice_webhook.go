@@ -18,13 +18,11 @@ package rayservice
 
 import (
 	"context"
-	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -33,6 +31,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -139,25 +138,10 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 
-		clusterSpec := spec.RayClusterSpec
+		clusterSpec := &spec.RayClusterSpec
 		clusterSpecPath := specPath.Child("rayClusterSpec")
-
-		// Check autoscaling and workload slicing
-		if ptr.Deref(clusterSpec.EnableInTreeAutoscaling, false) && !workloadslicing.Enabled(job) {
-			allErrors = append(allErrors, field.Invalid(clusterSpecPath.Child("enableInTreeAutoscaling"), clusterSpec.EnableInTreeAutoscaling, "a kueue managed RayService should only use autoscaling when workload slicing is enabled"))
-		}
-
-		// Should limit the worker count to 8 - 1 (max podSets num - cluster head)
-		if len(clusterSpec.WorkerGroupSpecs) > 7 {
-			allErrors = append(allErrors, field.TooMany(clusterSpecPath.Child("workerGroupSpecs"), len(clusterSpec.WorkerGroupSpecs), 7))
-		}
-
-		// None of the workerGroups should be named "head"
-		for i := range clusterSpec.WorkerGroupSpecs {
-			if clusterSpec.WorkerGroupSpecs[i].GroupName == headGroupPodSetName {
-				allErrors = append(allErrors, field.Forbidden(clusterSpecPath.Child("workerGroupSpecs").Index(i).Child("groupName"), fmt.Sprintf("%q is reserved for the head group", headGroupPodSetName)))
-			}
-		}
+		rayClusterSpecErrors := raycluster.ValidateCreateFromRayClusterSpec(job, clusterSpec, clusterSpecPath)
+		allErrors = append(allErrors, rayClusterSpecErrors...)
 	}
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
