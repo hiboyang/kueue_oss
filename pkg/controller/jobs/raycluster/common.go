@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -206,4 +207,39 @@ func ValidateCreateFromRayClusterSpec(object client.Object, rayClusterSpec *rayv
 	}
 
 	return allErrors
+}
+
+func ValidateTopologyRequestByRayClusterSpec(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec) (field.ErrorList, error) {
+	var allErrs field.ErrorList
+	if rayClusterSpec == nil {
+		return allErrs, nil
+	}
+
+	podSets, podSetsErr := jobframework.JobPodSets(ctx, job)
+
+	allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)...)
+
+	if podSetsErr == nil {
+		headGroupPodSetName := utilpodset.FindPodSetByName(podSets, headGroupPodSetName)
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(rayClusterSpec))...)
+	}
+
+	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
+		workerGroupMetaPath := workerGroupSpecsPath.Index(i).Child("template", "metadata")
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)...)
+
+		if podSetsErr != nil {
+			continue
+		}
+
+		workerPodSetName := utilpodset.FindPodSetByName(podSets, kueue.NewPodSetReference(wgs.GroupName))
+		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(workerGroupMetaPath, &rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta, workerPodSetName)...)
+	}
+
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+
+	return nil, podSetsErr
 }

@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -191,7 +192,7 @@ func TestBuildPodSetsFromRayClusterSpec(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakePodSet("workers", 6). // 3 replicas * 2 hosts = 6
-					PodSpec(corev1.PodSpec{
+										PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "worker"}},
 					}).
 					Obj(),
@@ -226,13 +227,13 @@ func TestBuildPodSetsFromRayClusterSpec(t *testing.T) {
 
 func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 	testCases := map[string]struct {
-		podSets                []kueue.PodSet
-		object                 client.Object
+		podSets                 []kueue.PodSet
+		object                  client.Object
 		enableInTreeAutoscaling *bool
-		rayClusterName         string
-		rayClusterInClient     *rayv1.RayCluster
-		wantPodSets            []kueue.PodSet
-		wantErr                bool
+		rayClusterName          string
+		rayClusterInClient      *rayv1.RayCluster
+		wantPodSets             []kueue.PodSet
+		wantErr                 bool
 	}{
 		"workload slicing disabled - no update": {
 			podSets: []kueue.PodSet{
@@ -243,7 +244,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(true),
-			rayClusterName:         "raycluster",
+			rayClusterName:          "raycluster",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
@@ -259,7 +260,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(false)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(false),
-			rayClusterName:         "raycluster",
+			rayClusterName:          "raycluster",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
@@ -275,7 +276,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(true),
-			rayClusterName:         "",
+			rayClusterName:          "",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
@@ -291,8 +292,8 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(true),
-			rayClusterName:         "nonexistent-raycluster",
-			rayClusterInClient:     nil,
+			rayClusterName:          "nonexistent-raycluster",
+			rayClusterInClient:      nil,
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
@@ -308,7 +309,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(true),
-			rayClusterName:         "target-raycluster",
+			rayClusterName:          "target-raycluster",
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
 				Obj(),
@@ -327,7 +328,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(true),
-			rayClusterName:         "target-raycluster",
+			rayClusterName:          "target-raycluster",
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(4).
 				WithNumOfHosts("workers-group-0", 2).
@@ -347,7 +348,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithEnableAutoscaling(ptr.To(true)).
 				Obj(),
 			enableInTreeAutoscaling: ptr.To(true),
-			rayClusterName:         "target-raycluster",
+			rayClusterName:          "target-raycluster",
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
 				Obj(),
@@ -741,7 +742,7 @@ func TestUpdatePodSetsFromRayCluster_GetError(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if _, ok := obj.(*rayv1.RayCluster); ok {
-					return apierrors.NewInternalError(fmt.Errorf("simulated get error"))
+					return apierrors.NewInternalError(errors.New("simulated get error"))
 				}
 				return client.Get(ctx, key, obj, opts...)
 			},
