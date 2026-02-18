@@ -27,6 +27,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -446,6 +447,162 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 							Spec: corev1.PodSpec{
 								Containers:   []corev1.Container{{Name: "worker"}},
 								NodeSelector: map[string]string{"node-type": "worker"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"update with tolerations and labels": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			podSetsInfo: []podset.PodSetInfo{
+				{
+					Labels: map[string]string{"head-label": "value1"},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "key1",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "value1",
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+					},
+				},
+				{
+					Labels: map[string]string{"worker-label": "value2"},
+					Tolerations: []corev1.Toleration{
+						{
+							Key:      "key2",
+							Operator: corev1.TolerationOpEqual,
+							Value:    "value2",
+							Effect:   corev1.TaintEffectNoExecute,
+						},
+					},
+				},
+			},
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"head-label": "value1"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+							Tolerations: []corev1.Toleration{
+								{
+									Key:      "key1",
+									Operator: corev1.TolerationOpEqual,
+									Value:    "value1",
+									Effect:   corev1.TaintEffectNoSchedule,
+								},
+							},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{"worker-label": "value2"},
+							},
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+								Tolerations: []corev1.Toleration{
+									{
+										Key:      "key2",
+										Operator: corev1.TolerationOpEqual,
+										Value:    "value2",
+										Effect:   corev1.TaintEffectNoExecute,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		"update multiple worker groups": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+			podSetsInfo: []podset.PodSetInfo{
+				{
+					NodeSelector: map[string]string{"node-type": "head"},
+				},
+				{
+					NodeSelector: map[string]string{"node-type": "worker1"},
+				},
+				{
+					NodeSelector: map[string]string{"node-type": "worker2"},
+				},
+			},
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers:   []corev1.Container{{Name: "head"}},
+							NodeSelector: map[string]string{"node-type": "head"},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers:   []corev1.Container{{Name: "worker1"}},
+								NodeSelector: map[string]string{"node-type": "worker1"},
+							},
+						},
+					},
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers:   []corev1.Container{{Name: "worker2"}},
+								NodeSelector: map[string]string{"node-type": "worker2"},
 							},
 						},
 					},
