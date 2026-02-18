@@ -162,7 +162,7 @@ func (j *RayJob) PodLabelSelector() string {
 
 func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayJob spec first
-	podSets, err := raycluster.BuildPodSetsFromRayClusterSpec(j.Spec.RayClusterSpec)
+	podSets, err := raycluster.BuildPodSetsByRayClusterSpec(j.Spec.RayClusterSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -221,7 +221,7 @@ func (j *RayJob) RestorePodSetsInfo(podSetsInfo []podset.PodSetInfo) bool {
 		return false
 	}
 
-	changed := raycluster.RestorePodSetsInfoFromRayClusterSpec(j.Spec.RayClusterSpec, podSetsInfo)
+	changed := raycluster.RestorePodSetsInfoByRayClusterSpec(j.Spec.RayClusterSpec, podSetsInfo)
 
 	// submitter
 	if j.Spec.SubmissionMode == rayv1.K8sJobMode {

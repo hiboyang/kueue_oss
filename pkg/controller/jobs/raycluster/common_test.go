@@ -41,7 +41,7 @@ import (
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 )
 
-func TestBuildPodSetsFromRayClusterSpec(t *testing.T) {
+func TestBuildPodSetsByRayClusterSpec(t *testing.T) {
 	testCases := map[string]struct {
 		rayClusterSpec                *rayv1.RayClusterSpec
 		wantPodSets                   []kueue.PodSet
@@ -204,7 +204,7 @@ func TestBuildPodSetsFromRayClusterSpec(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
 
-			gotPodSets, err := BuildPodSetsFromRayClusterSpec(tc.rayClusterSpec)
+			gotPodSets, err := BuildPodSetsByRayClusterSpec(tc.rayClusterSpec)
 
 			if tc.wantErr {
 				if err == nil {
@@ -477,7 +477,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 	}
 }
 
-func TestRestorePodSetsInfoFromRayClusterSpec(t *testing.T) {
+func TestRestorePodSetsInfoByRayClusterSpec(t *testing.T) {
 	testCases := map[string]struct {
 		rayClusterSpec *rayv1.RayClusterSpec
 		podSetsInfo    []podset.PodSetInfo
@@ -586,7 +586,7 @@ func TestRestorePodSetsInfoFromRayClusterSpec(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotChanged := RestorePodSetsInfoFromRayClusterSpec(tc.rayClusterSpec, tc.podSetsInfo)
+			gotChanged := RestorePodSetsInfoByRayClusterSpec(tc.rayClusterSpec, tc.podSetsInfo)
 
 			if gotChanged != tc.wantChanged {
 				t.Errorf("Expected changed=%v, got changed=%v", tc.wantChanged, gotChanged)
@@ -599,7 +599,7 @@ func TestRestorePodSetsInfoFromRayClusterSpec(t *testing.T) {
 	}
 }
 
-func TestValidateCreateFromRayClusterSpec(t *testing.T) {
+func TestValidateCreateByRayClusterSpec(t *testing.T) {
 	testCases := map[string]struct {
 		object         client.Object
 		rayClusterSpec *rayv1.RayClusterSpec
@@ -716,7 +716,7 @@ func TestValidateCreateFromRayClusterSpec(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			gotErrors := ValidateCreateFromRayClusterSpec(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
+			gotErrors := ValidateCreateByRayClusterSpec(tc.object, tc.rayClusterSpec, field.NewPath("spec"))
 
 			if diff := cmp.Diff(tc.wantErrors, gotErrors, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("Unexpected errors (-want +got):\n%s", diff)

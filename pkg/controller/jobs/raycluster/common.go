@@ -36,8 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-// BuildPodSetsFromRayClusterSpec builds PodSets from RayClusterSpec
-func BuildPodSetsFromRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) {
+// BuildPodSetsByRayClusterSpec builds PodSets from RayClusterSpec
+func BuildPodSetsByRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
 
 	// head
@@ -171,7 +171,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec *rayv1.RayClusterSp
 	return nil
 }
 
-func RestorePodSetsInfoFromRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
+func RestorePodSetsInfoByRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
 	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
@@ -186,7 +186,7 @@ func RestorePodSetsInfoFromRayClusterSpec(rayClusterSpec *rayv1.RayClusterSpec, 
 	return changed
 }
 
-func ValidateCreateFromRayClusterSpec(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
+func ValidateCreateByRayClusterSpec(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, rayClusterSpecPath *field.Path) field.ErrorList {
 	var allErrors field.ErrorList
 
 	// Should not use auto scaler. Once the resources are reserved by queue the cluster should do its best to use them.
