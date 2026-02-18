@@ -226,7 +226,7 @@ func TestBuildPodSetsByRayClusterSpec(t *testing.T) {
 	}
 }
 
-func TestUpdatePodSetsFromRayCluster(t *testing.T) {
+func TestUpdatePodSetsByRayCluster(t *testing.T) {
 	testCases := map[string]struct {
 		podSets                 []kueue.PodSet
 		object                  client.Object
@@ -375,7 +375,7 @@ func TestUpdatePodSetsFromRayCluster(t *testing.T) {
 				WithObjects(objs...).
 				Build()
 
-			gotPodSets, err := UpdatePodSetsFromRayCluster(ctx, tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
+			gotPodSets, err := UpdatePodSetsByRayCluster(ctx, tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
 
 			if tc.wantErr {
 				if err == nil {
@@ -887,7 +887,7 @@ func TestValidateCreateByRayClusterSpec(t *testing.T) {
 	}
 }
 
-func TestUpdatePodSetsFromRayCluster_GetError(t *testing.T) {
+func TestUpdatePodSetsFayCluster_GetError(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	ctx := context.Background()
 	scheme := runtime.NewScheme()
@@ -916,7 +916,7 @@ func TestUpdatePodSetsFromRayCluster_GetError(t *testing.T) {
 		WithEnableAutoscaling(ptr.To(true)).
 		Obj()
 
-	_, err := UpdatePodSetsFromRayCluster(ctx, podSets, c, object, ptr.To(true), "target-raycluster")
+	_, err := UpdatePodSetsByRayCluster(ctx, podSets, c, object, ptr.To(true), "target-raycluster")
 
 	if err == nil {
 		t.Error("Expected error but got none")
