@@ -209,7 +209,7 @@ func ValidateCreateByRayClusterSpec(object client.Object, rayClusterSpec *rayv1.
 	return allErrors
 }
 
-func ValidateTopologyRequestByRayClusterSpec(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec) (field.ErrorList, error) {
+func ValidateTopologyRequestByRayClusterSpec(ctx context.Context, job jobframework.GenericJob, rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 	if rayClusterSpec == nil {
 		return allErrs, nil
@@ -222,7 +222,7 @@ func ValidateTopologyRequestByRayClusterSpec(ctx context.Context, job jobframewo
 	if podSetsErr == nil {
 		headGroupPodSetName := utilpodset.FindPodSetByName(podSets, headGroupPodSetName)
 		allErrs = append(allErrs, jobframework.ValidateSliceSizeAnnotationUpperBound(headGroupMetaPath, &rayClusterSpec.HeadGroupSpec.Template.ObjectMeta, headGroupPodSetName)...)
-		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(rayClusterSpec))...)
+		allErrs = append(allErrs, jobframework.ValidatePodSetGroupingTopology(podSets, BuildPodSetAnnotationsPathByNameMap(rayClusterSpec, headGroupMetaPath, workerGroupSpecsPath))...)
 	}
 
 	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
@@ -242,4 +242,13 @@ func ValidateTopologyRequestByRayClusterSpec(ctx context.Context, job jobframewo
 	}
 
 	return nil, podSetsErr
+}
+
+func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath *field.Path) map[kueue.PodSetReference]*field.Path {
+	podSetAnnotationsPathByName := make(map[kueue.PodSetReference]*field.Path)
+	podSetAnnotationsPathByName[headGroupPodSetName] = headGroupMetaPath.Child("annotations")
+	for i, wgs := range rayClusterSpec.WorkerGroupSpecs {
+		podSetAnnotationsPathByName[kueue.PodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
+	}
+	return podSetAnnotationsPathByName
 }

@@ -38,6 +38,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
+var (
+	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
+	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
+	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+)
+
 type RayServiceWebhook struct {
 	client                       client.Client
 	queues                       *qcache.Manager
@@ -151,7 +157,7 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 
 func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService *rayv1.RayService) (field.ErrorList, error) {
 	job := (*RayService)(rayService)
-	return raycluster.ValidateTopologyRequestByRayClusterSpec(ctx, job, &rayService.Spec.RayClusterSpec)
+	return raycluster.ValidateTopologyRequestByRayClusterSpec(ctx, job, &rayService.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
 }
 
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
