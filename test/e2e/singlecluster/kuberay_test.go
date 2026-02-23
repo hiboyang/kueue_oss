@@ -469,8 +469,8 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1500m").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "1500m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "600m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
