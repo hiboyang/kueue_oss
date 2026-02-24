@@ -24,12 +24,6 @@ description: >
 
 3. 请参见 [KubeRay 安装说明](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator)了解 KubeRay 的安装和配置详情。
 
-{{% alert title="注意" color="primary" %}}
-RayService 通过 RayCluster 由 Kueue 管理；
-在 v0.17.0 之前，你需要在完成安装后重启 Kueue 才能使用 RayCluster。你可以通过运行
-`kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
-{{% /alert %}}
-
 ## RayService 定义 {#rayservice-definition}
 
 在 Kueue 上运行 [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html)
