@@ -10,8 +10,8 @@ description: >
 本页演示如何利用 Kueue 的调度与资源管理能力运行
 [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) 。
 
-Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。
-因此，RayService 需要在 metadata.labels 中包含 `kueue.x-k8s.io/queue-name: user-queue` 标签，该标签会被传递到相应的 RayCluster，以触发 Kueue 的管理。
+在v0.17.0之前，Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。从v0.17.0开始，Kueue 可以直接管理 RayService，类似其直接管理 RayJob，
+不再通过 RayCluster。
 
 本指南面向对 Kueue 有基本了解的、[对外提供服务的用户](/zh-CN/docs/tasks#serving-user)。
 更多信息，请参见 [Kueue 概览](/zh-CN/docs/overview)。
