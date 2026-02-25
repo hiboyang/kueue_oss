@@ -21,6 +21,11 @@ This guide is for [serving users](/docs/tasks#serving-user) that have a basic un
 
 3. See [KubeRay Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/kuberay-operator-installation.html) for installation and configuration details of KubeRay.
 
+{{% alert title="Note" color="primary" %}}
+RayService is managed by Kueue through RayCluster, and in order to use RayCluster, prior to v0.17.0, you need to restart Kueue after the installation.
+You can do it by running: `kubectl delete pods -l control-plane=controller-manager -n kueue-system`.
+{{% /alert %}}
+
 ## RayService definition
 
 When running [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) on Kueue, take into consideration the following aspects:
