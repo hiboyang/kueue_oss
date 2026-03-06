@@ -1607,7 +1607,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		getWorkloadKey := func(job *batchv1.Job) types.NamespacedName {
 			ginkgo.GinkgoHelper()
 			getJob(manager.ctx, manager.client, job)
-			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.Name, job.UID, jobGVK, job.GetGeneration()), Namespace: job.Namespace}
+			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndResourceVersion(job.Name, job.UID, jobGVK, job.GetResourceVersion()), Namespace: job.Namespace}
 		}
 		getWorkload := func(g gomega.Gomega, ctx context.Context, clnt client.Client, key types.NamespacedName) *kueue.Workload {
 			ginkgo.GinkgoHelper()

@@ -37,19 +37,27 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerG
 	return generateWorkloadName(ownerName, ownerUID, ownerGVK, nil)
 }
 
-func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
-	return generateWorkloadName(ownerName, ownerUID, ownerGVK, &generation)
+func GetWorkloadNameForOwnerWithGVKAndResourceVersion(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, resourceVersion string) string {
+	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, resourceVersion)
 }
 
 func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
+	extra := ""
+	if generation != nil {
+		extra = strconv.FormatInt(ptr.Deref(generation, 0), 10)
+	}
+	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
+}
+
+func generateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
 	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength]
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength]
 }
 
-func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {
+func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, extra string) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
@@ -58,9 +66,9 @@ func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, 
 	h.Write([]byte(ownerName))
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerUID))
-	if generation != nil {
+	if extra != "" {
 		h.Write([]byte("\n"))
-		h.Write([]byte(strconv.FormatInt(ptr.Deref(generation, 0), 10)))
+		h.Write([]byte(extra))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

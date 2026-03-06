@@ -531,7 +531,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 					Condition(runningJobCondition).
 					Obj()).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
+				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndResourceVersion("test", "", gvk, "0"),
 			},
 			want: want{
 				localJob: newJob().
@@ -569,7 +569,7 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 						},
 					}).Build(),
 				key:          client.ObjectKeyFromObject(newJob().Obj()),
-				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration("test", "", gvk, 0),
+				workloadName: jobframework.GetWorkloadNameForOwnerWithGVKAndResourceVersion("test", "", gvk, "0"),
 			},
 			want: want{
 				localJob: newJob().

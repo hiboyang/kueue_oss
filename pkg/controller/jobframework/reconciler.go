@@ -1263,7 +1263,7 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 func newWorkloadName(job GenericJob) string {
 	object := job.Object()
 	if WorkloadSliceEnabled(job) {
-		return GetWorkloadNameForOwnerWithGVKAndGeneration(object.GetName(), object.GetUID(), job.GVK(), object.GetGeneration())
+		return GetWorkloadNameForOwnerWithGVKAndResourceVersion(object.GetName(), object.GetUID(), job.GVK(), object.GetResourceVersion())
 	}
 	return GetWorkloadNameForOwnerWithGVK(object.GetName(), object.GetUID(), job.GVK())
 }
