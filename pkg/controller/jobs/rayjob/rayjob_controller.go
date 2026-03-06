@@ -200,23 +200,57 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		}
 	}
 	if len(updatedPodSets) > 0 {
-		podSetsJSON, err := json.Marshal(updatedPodSets)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
-		}
-		annotations := j.Annotations
-		if annotations == nil {
-			annotations = make(map[string]string)
-		}
-		annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
-		j.Annotations = annotations
+		// Only update if the annotation value has actually changed to avoid
+		// an infinite reconciliation loop: each Update() changes the
+		// resourceVersion, which triggers another reconciliation.
+		if !podSetReplicaSizesMatchAnnotation(j.Annotations, updatedPodSets) {
+			podSetsJSON, err := json.Marshal(updatedPodSets)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+			}
+			annotations := j.Annotations
+			if annotations == nil {
+				annotations = make(map[string]string)
+			}
+			annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
+			j.Annotations = annotations
 
-		if err := reconciler.client.Update(ctx, j.Object()); err != nil {
-			return nil, fmt.Errorf("failed to update RayJob annotations: %w", err)
+			if err := reconciler.client.Update(ctx, j.Object()); err != nil {
+				return nil, fmt.Errorf("failed to update RayJob annotations: %w", err)
+			}
 		}
 	}
 
 	return podSets, nil
+}
+
+// podSetReplicaSizesMatchAnnotation checks whether the existing annotation
+// already records the same PodSet replica sizes as the given updatedPodSets.
+func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPodSets []kueue.PodSet) bool {
+	if annotations == nil {
+		return false
+	}
+	existing, ok := annotations[PodsetReplicaSizesAnnotation]
+	if !ok {
+		return false
+	}
+	var existingPodSets []kueue.PodSet
+	if err := json.Unmarshal([]byte(existing), &existingPodSets); err != nil {
+		return false
+	}
+	if len(existingPodSets) != len(updatedPodSets) {
+		return false
+	}
+	existingCounts := make(map[kueue.PodSetReference]int32, len(existingPodSets))
+	for _, ps := range existingPodSets {
+		existingCounts[ps.Name] = ps.Count
+	}
+	for _, ps := range updatedPodSets {
+		if c, ok := existingCounts[ps.Name]; !ok || c != ps.Count {
+			return false
+		}
+	}
+	return true
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
