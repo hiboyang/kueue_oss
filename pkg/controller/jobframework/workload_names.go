@@ -37,8 +37,8 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerG
 	return generateWorkloadName(ownerName, ownerUID, ownerGVK, nil)
 }
 
-func GetWorkloadNameForOwnerWithGVKAndResourceVersion(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, resourceVersion string) string {
-	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, resourceVersion)
+func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
+	return generateWorkloadName(ownerName, ownerUID, ownerGVK, &generation)
 }
 
 func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
