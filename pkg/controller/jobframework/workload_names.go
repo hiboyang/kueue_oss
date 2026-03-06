@@ -42,22 +42,14 @@ func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID type
 }
 
 func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
-	extra := ""
-	if generation != nil {
-		extra = strconv.FormatInt(ptr.Deref(generation, 0), 10)
-	}
-	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
-}
-
-func generateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
 	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength]
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength]
 }
 
-func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, extra string) string {
+func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
@@ -66,9 +58,9 @@ func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, 
 	h.Write([]byte(ownerName))
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerUID))
-	if extra != "" {
+	if generation != nil {
 		h.Write([]byte("\n"))
-		h.Write([]byte(extra))
+		h.Write([]byte(strconv.FormatInt(ptr.Deref(generation, 0), 10)))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
