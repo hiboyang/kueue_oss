@@ -18,6 +18,7 @@ package rayjob
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,6 +53,11 @@ const (
 	headGroupPodSetName    = "head"
 	submitterJobPodSetName = "submitter"
 	FrameworkName          = "ray.io/rayjob"
+
+	// PodsetReplicaSizesAnnotation is set on the RayJob when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is a JSON
+	// array compatible with []kueue.PodSet, containing only the changed PodSets.
+	PodsetReplicaSizesAnnotation = "kueue.x-k8s.io/podset-replica-sizes"
 )
 
 func init() {
@@ -172,10 +178,42 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
+	originalCounts := make(map[kueue.PodSetReference]int32, len(podSets))
+	for _, ps := range podSets {
+		originalCounts[ps.Name] = ps.Count
+	}
+
 	rayClusterName := j.Status.RayClusterName
 	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
 		return nil, err
+	}
+
+	// If any PodSet counts changed, record the updated PodSets as an annotation
+	var updatedPodSets []kueue.PodSet
+	for _, ps := range podSets {
+		if original, originalExists := originalCounts[ps.Name]; !originalExists || ps.Count != original {
+			updatedPodSets = append(updatedPodSets, kueue.PodSet{
+				Name:  ps.Name,
+				Count: ps.Count,
+			})
+		}
+	}
+	if len(updatedPodSets) > 0 {
+		podSetsJSON, err := json.Marshal(updatedPodSets)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+		}
+		annotations := j.Annotations
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
+		j.Annotations = annotations
+
+		if err := reconciler.client.Update(ctx, j.Object()); err != nil {
+			return nil, fmt.Errorf("failed to update RayJob annotations: %w", err)
+		}
 	}
 
 	return podSets, nil
