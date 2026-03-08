@@ -208,15 +208,18 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
 			}
-			annotations := j.Annotations
+
+			// Patch the job with the annotation, use a copy of the job object to avoid it being overwritten by the content returned by the Server.
+			objCopy := j.Object().DeepCopyObject().(client.Object)
+			patch := client.MergeFrom(objCopy.DeepCopyObject().(client.Object))
+			annotations := objCopy.GetAnnotations()
 			if annotations == nil {
 				annotations = make(map[string]string)
 			}
 			annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
-			j.Annotations = annotations
-
-			if err := reconciler.client.Update(ctx, j.Object()); err != nil {
-				return nil, fmt.Errorf("failed to update RayJob annotations: %w", err)
+			objCopy.SetAnnotations(annotations)
+			if err := reconciler.client.Patch(ctx, objCopy, patch); err != nil {
+				return nil, fmt.Errorf("failed to patch RayJob annotations: %w", err)
 			}
 		}
 	}
