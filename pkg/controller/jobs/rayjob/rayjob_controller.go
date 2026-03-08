@@ -190,10 +190,10 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	}
 
 	// If any PodSet counts changed, record the updated PodSets as an annotation
-	var updatedPodSets []kueue.PodSet
+	var updatedPodSets []podSetReplicaSize
 	for _, ps := range podSets {
 		if original, originalExists := originalCounts[ps.Name]; !originalExists || ps.Count != original {
-			updatedPodSets = append(updatedPodSets, kueue.PodSet{
+			updatedPodSets = append(updatedPodSets, podSetReplicaSize{
 				Name:  ps.Name,
 				Count: ps.Count,
 			})
@@ -227,9 +227,16 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	return podSets, nil
 }
 
+// podSetReplicaSize is a minimal representation of a PodSet for the
+// PodsetReplicaSizesAnnotation, containing only name and count.
+type podSetReplicaSize struct {
+	Name  kueue.PodSetReference `json:"name"`
+	Count int32                 `json:"count"`
+}
+
 // podSetReplicaSizesMatchAnnotation checks whether the existing annotation
 // already records the same PodSet replica sizes as the given updatedPodSets.
-func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPodSets []kueue.PodSet) bool {
+func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPodSets []podSetReplicaSize) bool {
 	if annotations == nil {
 		return false
 	}
@@ -237,7 +244,7 @@ func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPod
 	if !ok {
 		return false
 	}
-	var existingPodSets []kueue.PodSet
+	var existingPodSets []podSetReplicaSize
 	if err := json.Unmarshal([]byte(existing), &existingPodSets); err != nil {
 		return false
 	}
