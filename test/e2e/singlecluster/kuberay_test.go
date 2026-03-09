@@ -345,6 +345,15 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayJob after scaling up", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadrayjob.PodsetReplicaSizesAnnotation),
+					"Expected podset-replica-sizes annotation on RayJob after scaling up")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("Waiting for at least 2 total workloads due to scaling up creating another workload", func() {
 			// Use >= 2 since finished slices from intermediate scaling decisions are retained.
 			gomega.Eventually(func(g gomega.Gomega) {

@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -203,7 +204,11 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		// Only update if the annotation value has actually changed to avoid
 		// an infinite reconciliation loop: each Update() changes the
 		// resourceVersion, which triggers another reconciliation.
-		if !podSetReplicaSizesMatchAnnotation(j.Annotations, updatedPodSets) {
+		match, err := podSetReplicaSizesMatchAnnotation(j.Annotations, updatedPodSets)
+		if err != nil {
+			return nil, err
+		}
+		if !match {
 			podSetsJSON, err := json.Marshal(updatedPodSets)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
@@ -211,14 +216,16 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 
 			// Patch the job with the annotation, use a copy of the job object to avoid it being overwritten by the content returned by the Server.
 			objCopy := j.Object().DeepCopyObject().(client.Object)
-			patch := client.MergeFrom(objCopy.DeepCopyObject().(client.Object))
-			annotations := objCopy.GetAnnotations()
-			if annotations == nil {
-				annotations = make(map[string]string)
-			}
-			annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
-			objCopy.SetAnnotations(annotations)
-			if err := reconciler.client.Patch(ctx, objCopy, patch); err != nil {
+			err = utilclient.Patch(ctx, reconciler.client, objCopy, func() (bool, error) {
+				annotations := objCopy.GetAnnotations()
+				if annotations == nil {
+					annotations = make(map[string]string)
+				}
+				annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
+				objCopy.SetAnnotations(annotations)
+				return true, nil
+			})
+			if err != nil {
 				return nil, fmt.Errorf("failed to patch RayJob annotations: %w", err)
 			}
 		}
@@ -236,20 +243,20 @@ type podSetReplicaSize struct {
 
 // podSetReplicaSizesMatchAnnotation checks whether the existing annotation
 // already records the same PodSet replica sizes as the given updatedPodSets.
-func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPodSets []podSetReplicaSize) bool {
+func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPodSets []podSetReplicaSize) (bool, error) {
 	if annotations == nil {
-		return false
+		return false, nil
 	}
 	existing, ok := annotations[PodsetReplicaSizesAnnotation]
 	if !ok {
-		return false
+		return false, nil
 	}
 	var existingPodSets []podSetReplicaSize
 	if err := json.Unmarshal([]byte(existing), &existingPodSets); err != nil {
-		return false
+		return false, fmt.Errorf("failed to unmarshal existing %s annotation: %w", PodsetReplicaSizesAnnotation, err)
 	}
 	if len(existingPodSets) != len(updatedPodSets) {
-		return false
+		return false, nil
 	}
 	existingCounts := make(map[kueue.PodSetReference]int32, len(existingPodSets))
 	for _, ps := range existingPodSets {
@@ -257,10 +264,10 @@ func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPod
 	}
 	for _, ps := range updatedPodSets {
 		if c, ok := existingCounts[ps.Name]; !ok || c != ps.Count {
-			return false
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
