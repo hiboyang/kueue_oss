@@ -759,60 +759,6 @@ func Test_RayJobFinished(t *testing.T) {
 	}
 }
 
-func TestPodSetReplicaSizesMatchAnnotation(t *testing.T) {
-	testCases := map[string]struct {
-		annotations    map[string]string
-		updatedPodSets []podSetReplicaSize
-		wantMatch      bool
-		wantErr        bool
-	}{
-		"no annotation": {
-			annotations:    nil,
-			updatedPodSets: []podSetReplicaSize{{Name: "group1", Count: 5}},
-			wantMatch:      false,
-		},
-		"match": {
-			annotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"group1","count":5}]`,
-			},
-			updatedPodSets: []podSetReplicaSize{{Name: "group1", Count: 5}},
-			wantMatch:      true,
-		},
-		"count mismatch": {
-			annotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"group1","count":5}]`,
-			},
-			updatedPodSets: []podSetReplicaSize{{Name: "group1", Count: 10}},
-			wantMatch:      false,
-		},
-		"invalid JSON": {
-			annotations: map[string]string{
-				PodsetReplicaSizesAnnotation: "not-json",
-			},
-			updatedPodSets: []podSetReplicaSize{{Name: "group1", Count: 5}},
-			wantErr:        true,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := podSetReplicaSizesMatchAnnotation(tc.annotations, tc.updatedPodSets)
-			if tc.wantErr {
-				if err == nil {
-					t.Errorf("expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tc.wantMatch {
-				t.Errorf("podSetReplicaSizesMatchAnnotation() = %v, want %v", got, tc.wantMatch)
-			}
-		})
-	}
-}
-
 func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 	headSpec := rayv1.HeadGroupSpec{
 		Template: corev1.PodTemplateSpec{
@@ -886,6 +832,20 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 				Obj(),
 			wantAnnotation: `[{"name":"group1","count":5}]`,
 			wantGroupCount: 5,
+		},
+		"stale annotation updated when counts match original after scale-down": {
+			rayJob: testingrayutil.MakeJob("rayjob", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"group1","count":6}]`).
+				WithHeadGroupSpec(headSpec).
+				WithWorkerGroups(workerGroup("group1", 4)).
+				WithEnableAutoscaling(ptr.To(true)).
+				Obj(),
+			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
+				WithWorkerGroups(workerGroup("group1", 4)).
+				Obj(),
+			wantAnnotation: `[{"name":"group1","count":4}]`,
+			wantGroupCount: 4,
 		},
 	}
 

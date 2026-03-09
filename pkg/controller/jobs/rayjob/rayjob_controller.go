@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -190,44 +191,46 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
-	// If any PodSet counts changed, record the updated PodSets as an annotation
+	// Determine whether counts need to be recorded in the annotation.
+	// Priority 1: if annotation already exists, compare current counts against the annotation.
+	// Priority 2: compare current counts against the original spec from RayJob.
 	var updatedPodSets []podSetReplicaSize
-	for _, ps := range podSets {
-		if original, originalExists := originalCounts[ps.Name]; !originalExists || ps.Count != original {
-			updatedPodSets = append(updatedPodSets, podSetReplicaSize{
-				Name:  ps.Name,
-				Count: ps.Count,
-			})
+	if j.Annotations[PodsetReplicaSizesAnnotation] != "" {
+		var annotatedPodSets []podSetReplicaSize
+		if err := json.Unmarshal([]byte(j.Annotations[PodsetReplicaSizesAnnotation]), &annotatedPodSets); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal existing %s annotation: %w", PodsetReplicaSizesAnnotation, err)
 		}
+		annotatedCounts := make(map[kueue.PodSetReference]int32, len(podSets))
+		// annotation may only contain changes from original counts, use original counts as base, then add counts from the annotation
+		maps.Copy(annotatedCounts, originalCounts)
+		for _, ps := range annotatedPodSets {
+			annotatedCounts[ps.Name] = ps.Count
+		}
+		updatedPodSets = comparePodSetCounts(podSets, annotatedCounts)
+	} else {
+		updatedPodSets = comparePodSetCounts(podSets, originalCounts)
 	}
-	if len(updatedPodSets) > 0 {
-		// Only update if the annotation value has actually changed to avoid
-		// an infinite reconciliation loop: each Update() changes the
-		// resourceVersion, which triggers another reconciliation.
-		match, err := podSetReplicaSizesMatchAnnotation(j.Annotations, updatedPodSets)
-		if err != nil {
-			return nil, err
-		}
-		if !match {
-			podSetsJSON, err := json.Marshal(updatedPodSets)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
-			}
 
-			// Patch the job with the annotation, use a copy of the job object to avoid it being overwritten by the content returned by the Server.
-			objCopy := j.Object().DeepCopyObject().(client.Object)
-			err = utilclient.Patch(ctx, reconciler.client, objCopy, func() (bool, error) {
-				annotations := objCopy.GetAnnotations()
-				if annotations == nil {
-					annotations = make(map[string]string)
-				}
-				annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
-				objCopy.SetAnnotations(annotations)
-				return true, nil
-			})
-			if err != nil {
-				return nil, fmt.Errorf("failed to patch RayJob annotations: %w", err)
+	if len(updatedPodSets) > 0 {
+		podSetsJSON, err := json.Marshal(updatedPodSets)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+		}
+
+		// Patch the job with the annotation, use a copy of the job object to avoid
+		// it being overwritten by the content returned by the Server.
+		objCopy := j.Object().DeepCopyObject().(client.Object)
+		err = utilclient.Patch(ctx, reconciler.client, objCopy, func() (bool, error) {
+			annotations := objCopy.GetAnnotations()
+			if annotations == nil {
+				annotations = make(map[string]string)
 			}
+			annotations[PodsetReplicaSizesAnnotation] = string(podSetsJSON)
+			objCopy.SetAnnotations(annotations)
+			return true, nil
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to patch RayJob annotations: %w", err)
 		}
 	}
 
@@ -241,33 +244,18 @@ type podSetReplicaSize struct {
 	Count int32                 `json:"count"`
 }
 
-// podSetReplicaSizesMatchAnnotation checks whether the existing annotation
-// already records the same PodSet replica sizes as the given updatedPodSets.
-func podSetReplicaSizesMatchAnnotation(annotations map[string]string, updatedPodSets []podSetReplicaSize) (bool, error) {
-	if annotations == nil {
-		return false, nil
-	}
-	existing, ok := annotations[PodsetReplicaSizesAnnotation]
-	if !ok {
-		return false, nil
-	}
-	var existingPodSets []podSetReplicaSize
-	if err := json.Unmarshal([]byte(existing), &existingPodSets); err != nil {
-		return false, fmt.Errorf("failed to unmarshal existing %s annotation: %w", PodsetReplicaSizesAnnotation, err)
-	}
-	if len(existingPodSets) != len(updatedPodSets) {
-		return false, nil
-	}
-	existingCounts := make(map[kueue.PodSetReference]int32, len(existingPodSets))
-	for _, ps := range existingPodSets {
-		existingCounts[ps.Name] = ps.Count
-	}
-	for _, ps := range updatedPodSets {
-		if c, ok := existingCounts[ps.Name]; !ok || c != ps.Count {
-			return false, nil
+// comparePodSetCounts returns the PodSets whose counts differ from referenceCounts.
+func comparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) []podSetReplicaSize {
+	var changed []podSetReplicaSize
+	for _, ps := range podSets {
+		if refCount, ok := referenceCounts[ps.Name]; !ok || ps.Count != refCount {
+			changed = append(changed, podSetReplicaSize{
+				Name:  ps.Name,
+				Count: ps.Count,
+			})
 		}
 	}
-	return true, nil
+	return changed
 }
 
 func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
