@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -180,39 +179,33 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 		return nil, err
 	}
 
-	originalCounts := make(map[kueue.PodSetReference]int32, len(podSets))
-	for _, ps := range podSets {
-		originalCounts[ps.Name] = ps.Count
-	}
-
 	rayClusterName := j.Status.RayClusterName
 	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Determine whether counts need to be recorded in the annotation.
-	// Priority 1: if annotation already exists, compare current counts against the annotation.
-	// Priority 2: compare current counts against the original spec from RayJob.
-	var updatedPodSets []podSetReplicaSize
+	// Parse existing annotation counts; use empty counts if annotation is absent.
+	previousCounts := make(map[kueue.PodSetReference]int32)
 	if j.Annotations[PodsetReplicaSizesAnnotation] != "" {
 		var annotatedPodSets []podSetReplicaSize
 		if err := json.Unmarshal([]byte(j.Annotations[PodsetReplicaSizesAnnotation]), &annotatedPodSets); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal existing %s annotation: %w", PodsetReplicaSizesAnnotation, err)
 		}
-		annotatedCounts := make(map[kueue.PodSetReference]int32, len(podSets))
-		// annotation may only contain changes from original counts, use original counts as base, then add counts from the annotation
-		maps.Copy(annotatedCounts, originalCounts)
 		for _, ps := range annotatedPodSets {
-			annotatedCounts[ps.Name] = ps.Count
+			previousCounts[ps.Name] = ps.Count
 		}
-		updatedPodSets = comparePodSetCounts(podSets, annotatedCounts)
-	} else {
-		updatedPodSets = comparePodSetCounts(podSets, originalCounts)
 	}
 
-	if len(updatedPodSets) > 0 {
-		podSetsJSON, err := json.Marshal(updatedPodSets)
+	// Compare current counts against previous annotation. If any differ, update the annotation
+	// with ALL current podSet counts (not just the changed ones) to avoid infinite patch loops.
+	updatedPodSets := comparePodSetCounts(podSets, previousCounts)
+	if len(updatedPodSets) > 0 && reconciler.client != nil {
+		allPodSets := make([]podSetReplicaSize, len(podSets))
+		for i, ps := range podSets {
+			allPodSets[i] = podSetReplicaSize{Name: ps.Name, Count: ps.Count}
+		}
+		podSetsJSON, err := json.Marshal(allPodSets)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
 		}

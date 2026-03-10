@@ -322,6 +322,18 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("Checking podset-replica-sizes annotation", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadrayjob.PodsetReplicaSizesAnnotation),
+					"Expected podset-replica-sizes annotation on RayJob before scaling")
+				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadrayjob.PodsetReplicaSizesAnnotation], "workers-group-0")
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(count).To(gomega.Equal(int32(1)), "Expected workers-group-0 count = 1")
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.By("Waiting for 3 pods in rayjob namespace", func() {
 			// 3 rayjob pods: head, worker, submitter job
 			gomega.Eventually(func(g gomega.Gomega) {

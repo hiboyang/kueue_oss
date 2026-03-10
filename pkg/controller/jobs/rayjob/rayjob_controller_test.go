@@ -781,7 +781,7 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 		wantAnnotation string
 		wantGroupCount int32
 	}{
-		"annotation set when replica counts differ": {
+		"first call sets annotation with all podset counts": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				WithHeadGroupSpec(headSpec).
@@ -791,38 +791,13 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantAnnotation: `[{"name":"group1","count":5}]`,
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
 			wantGroupCount: 5,
-		},
-		"no annotation when counts match": {
-			rayJob: testingrayutil.MakeJob("rayjob", "ns").
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				WithHeadGroupSpec(headSpec).
-				WithWorkerGroups(workerGroup("group1", 3)).
-				WithEnableAutoscaling(ptr.To(true)).
-				Obj(),
-			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
-				WithWorkerGroups(workerGroup("group1", 3)).
-				Obj(),
-			wantAnnotation: "",
-			wantGroupCount: 3,
-		},
-		"no annotation when autoscaling disabled": {
-			rayJob: testingrayutil.MakeJob("rayjob", "ns").
-				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				WithHeadGroupSpec(headSpec).
-				WithWorkerGroups(workerGroup("group1", 1)).
-				Obj(),
-			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
-				WithWorkerGroups(workerGroup("group1", 5)).
-				Obj(),
-			wantAnnotation: "",
-			wantGroupCount: 1,
 		},
 		"skip patch when annotation already matches": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
+				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -830,13 +805,13 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantAnnotation: `[{"name":"group1","count":5}]`,
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
 			wantGroupCount: 5,
 		},
-		"stale annotation updated when counts match original after scale-down": {
+		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"group1","count":6}]`).
+				Annotation(PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 4)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -844,7 +819,7 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 4)).
 				Obj(),
-			wantAnnotation: `[{"name":"group1","count":4}]`,
+			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
 			wantGroupCount: 4,
 		},
 	}
