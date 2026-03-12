@@ -20,11 +20,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -873,9 +875,21 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if WorkloadSliceEnabled(job) {
-		podSets, err := GetJobPodSetsWithUpdateJob(ctx, job, r.client)
+		oldAnnotations := make(map[string]string, len(job.Object().GetAnnotations()))
+		maps.Copy(oldAnnotations, job.Object().GetAnnotations())
+
+		podSets, err := JobPodSets(ctx, job)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
+		}
+
+		if ca, implements := job.(JobWithCustomAnnotations); implements {
+			if !apiequality.Semantic.DeepEqual(job.Object().GetAnnotations(), oldAnnotations) {
+				err = ca.UpdateAnnotations(ctx, r.client)
+				if err != nil {
+					return nil, fmt.Errorf("failed to update annotations on object %s: %w", object.GetName(), err)
+				}
+			}
 		}
 
 		// Workload slices allow modifications only to PodSet.Count.
