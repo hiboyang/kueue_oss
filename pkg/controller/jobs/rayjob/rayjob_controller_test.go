@@ -759,7 +759,7 @@ func Test_RayJobFinished(t *testing.T) {
 	}
 }
 
-func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
+func TestGetCustomAnnotations(t *testing.T) {
 	headSpec := rayv1.HeadGroupSpec{
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
@@ -776,10 +776,10 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		rayJob         *rayv1.RayJob
-		rayCluster     *rayv1.RayCluster
-		wantAnnotation string
-		wantGroupCount int32
+		rayJob               *rayv1.RayJob
+		rayCluster           *rayv1.RayCluster
+		wantCustomAnnotation map[string]string
+		wantGroupCount       int32
 	}{
 		"first call sets annotation with all podset counts": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
@@ -791,7 +791,9 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			wantCustomAnnotation: map[string]string{
+				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			},
 			wantGroupCount: 5,
 		},
 		"skip patch when annotation already matches": {
@@ -805,8 +807,8 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
-			wantGroupCount: 5,
+			wantCustomAnnotation: nil,
+			wantGroupCount:       5,
 		},
 		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
@@ -819,7 +821,9 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 4)).
 				Obj(),
-			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
+			wantCustomAnnotation: map[string]string{
+				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
+			},
 			wantGroupCount: 4,
 		},
 		"annotation updated when podset count differs from annotation length": {
@@ -833,7 +837,9 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			wantCustomAnnotation: map[string]string{
+				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			},
 			wantGroupCount: 5,
 		},
 	}
@@ -853,9 +859,10 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 			reconciler = rayJobReconciler{client: fakeClient}
 			t.Cleanup(func() { reconciler = oldReconciler })
 
-			podSets, err := (*RayJob)(tc.rayJob).PodSets(ctx)
+			job := (*RayJob)(tc.rayJob)
+			podSets, err := job.PodSets(ctx)
 			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+				t.Fatalf("unexpected error from PodSets: %v", err)
 			}
 
 			// Verify the worker group count was updated
@@ -867,10 +874,14 @@ func TestPodSetsWithAutoscalingAnnotation(t *testing.T) {
 				}
 			}
 
-			// Verify the in-memory annotation on the RayJob was updated
-			gotAnnotation := tc.rayJob.Annotations[jobframework.PodsetReplicaSizesAnnotation]
-			if gotAnnotation != tc.wantAnnotation {
-				t.Errorf("annotation = %q, want %q", gotAnnotation, tc.wantAnnotation)
+			// Verify GetCustomAnnotations returns the expected annotations
+			gotAnnotations, err := job.GetCustomAnnotations(ctx, fakeClient, podSets)
+			if err != nil {
+				t.Fatalf("unexpected error from GetCustomAnnotations: %v", err)
+			}
+
+			if diff := cmp.Diff(tc.wantCustomAnnotation, gotAnnotations); diff != "" {
+				t.Errorf("GetCustomAnnotations mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
