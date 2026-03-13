@@ -74,6 +74,7 @@ const (
 	// PodsetReplicaSizesAnnotation is set on the job when autoscaling causes
 	// PodSet replica sizes to differ from the original spec. The value is a JSON
 	// array compatible with []kueue.PodSet, containing only the changed PodSets.
+	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
 	PodsetReplicaSizesAnnotation = "kueue.x-k8s.io/podset-replica-sizes"
 )
 
@@ -876,16 +877,25 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if WorkloadSliceEnabled(job) {
 		oldAnnotations := make(map[string]string, len(job.Object().GetAnnotations()))
-		maps.Copy(oldAnnotations, job.Object().GetAnnotations())
+		var jobWithCustomAnnotations JobWithCustomAnnotations
+		implementsJobWithCustomAnnotations := false
+
+		if workloadslicing.Enabled(object) {
+			jobWithCustomAnnotations, implementsJobWithCustomAnnotations = job.(JobWithCustomAnnotations)
+			if implementsJobWithCustomAnnotations {
+				maps.Copy(oldAnnotations, job.Object().GetAnnotations())
+			}
+		}
 
 		podSets, err := JobPodSets(ctx, job)
 		if err != nil {
 			return nil, fmt.Errorf("failed to retrieve pod sets from job: %w", err)
 		}
 
-		if ca, implements := job.(JobWithCustomAnnotations); implements {
+		// no need to check workloadslicing.Enabled(object) again, since implementsJobWithCustomAnnotations will be false if worloadslicing not enabled
+		if implementsJobWithCustomAnnotations {
 			if !apiequality.Semantic.DeepEqual(job.Object().GetAnnotations(), oldAnnotations) {
-				err = ca.UpdateAnnotations(ctx, r.client)
+				err = jobWithCustomAnnotations.UpdateAnnotations(ctx, r.client)
 				if err != nil {
 					return nil, fmt.Errorf("failed to update annotations on object %s: %w", object.GetName(), err)
 				}
