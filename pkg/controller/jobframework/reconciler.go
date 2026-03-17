@@ -88,6 +88,13 @@ var (
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
 )
 
+// PodSetReplicaSize is a minimal representation of a PodSet for the
+// PodsetReplicaSizesAnnotation, containing only name and count.
+type PodSetReplicaSize struct {
+	Name  kueue.PodSetReference `json:"name"`
+	Count int32                 `json:"count"`
+}
+
 type WorkloadRetentionPolicy struct {
 	AfterDeactivatedByKueue *time.Duration
 }
