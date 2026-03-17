@@ -24,7 +24,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -34,22 +33,37 @@ const (
 )
 
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
-	return generateWorkloadName(ownerName, ownerUID, ownerGVK, nil)
+	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, "")
 }
 
-func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
-	return generateWorkloadName(ownerName, ownerUID, ownerGVK, &generation)
+// ElasticWorkloadNameProvider interface contains methods to provide extra information to build workload name for elastic job
+type ElasticWorkloadNameProvider interface {
+	GetGeneration() int64
+	GetAnnotations() map[string]string
 }
 
-func generateWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation *int64) string {
+func GetElasticWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, elasticWorkloadNameProvider ElasticWorkloadNameProvider) string {
+	extra := elasticWorkloadNameProvider.GetAnnotations()[PodsetReplicaSizesAnnotation]
+	if extra == "" {
+		extra = strconv.FormatInt(elasticWorkloadNameProvider.GetGeneration(), 10)
+	}
+	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
+}
+
+func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
 	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
 	if len(prefixedName) > maxPrefixLength {
 		prefixedName = prefixedName[:maxPrefixLength]
 	}
-	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength]
+	return prefixedName
 }
 
-func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, generation *int64) string {
+func generateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
+	prefixedName := GenerateWorkloadNamePrefix(ownerName, ownerUID, ownerGVK)
+	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength]
+}
+
+func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, extra string) string {
 	h := sha1.New()
 	h.Write([]byte(gvk.Kind))
 	h.Write([]byte("\n"))
@@ -58,9 +72,9 @@ func getHash(ownerName string, ownerUID types.UID, gvk schema.GroupVersionKind, 
 	h.Write([]byte(ownerName))
 	h.Write([]byte("\n"))
 	h.Write([]byte(ownerUID))
-	if generation != nil {
+	if extra != "" {
 		h.Write([]byte("\n"))
-		h.Write([]byte(strconv.FormatInt(ptr.Deref(generation, 0), 10)))
+		h.Write([]byte(extra))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
