@@ -71,12 +71,6 @@ import (
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
-
-	// PodsetReplicaSizesAnnotation is set on the job when autoscaling causes
-	// PodSet replica sizes to differ from the original spec. The value is a JSON
-	// array compatible with []kueue.PodSet, containing only the changed PodSets.
-	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
-	PodsetReplicaSizesAnnotation = "kueue.x-k8s.io/podset-replica-sizes"
 )
 
 var (
@@ -87,13 +81,6 @@ var (
 	ErrExtraWorkloads                 = errors.New("extra workloads")
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
 )
-
-// PodSetReplicaSize is a minimal representation of a PodSet for the
-// PodsetReplicaSizesAnnotation, containing only name and count.
-type PodSetReplicaSize struct {
-	Name  kueue.PodSetReference `json:"name"`
-	Count int32                 `json:"count"`
-}
 
 type WorkloadRetentionPolicy struct {
 	AfterDeactivatedByKueue *time.Duration
