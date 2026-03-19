@@ -19,6 +19,7 @@ package raycluster
 import (
 	"context"
 	"fmt"
+	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -43,6 +44,7 @@ var (
 const (
 	headGroupPodSetName = "head"
 	FrameworkName       = "ray.io/raycluster"
+	requeDelaySeconds   = 10
 )
 
 func init() {
@@ -77,6 +79,7 @@ type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
+var _ jobframework.JobWithCustomRequeue = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -180,6 +183,13 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 
 func (j *RayCluster) PodsReady(ctx context.Context) bool {
 	return j.Status.State == rayv1.Ready
+}
+
+func (j *RayCluster) NeedRequeue(ctx context.Context, c client.Client) (bool, time.Duration, error) {
+	if j.Status.State == rayv1.Ready {
+		return true, requeDelaySeconds * time.Second, nil
+	}
+	return false, 0, nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

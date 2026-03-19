@@ -19,6 +19,7 @@ package jobframework
 import (
 	"context"
 	"strconv"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -177,6 +178,13 @@ type JobWithManagedBy interface {
 type JobWithCustomAnnotations interface {
 	// GetCustomAnnotations gets extra annotations needed to be added to the job
 	GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error)
+}
+
+// JobWithCustomRequeue interface should be implemented by generic jobs
+// which needs to decide whether to do requeue.
+type JobWithCustomRequeue interface {
+	// NeedRequeue return requeue information
+	NeedRequeue(ctx context.Context, c client.Client) (bool, time.Duration, error)
 }
 
 // TopLevelJob interface is an optional interface used to indicate

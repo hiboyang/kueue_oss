@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -51,6 +52,7 @@ var (
 const (
 	headGroupPodSetName = "head"
 	FrameworkName       = "ray.io/rayservice"
+	requeDelaySeconds   = 10
 )
 
 func init() {
@@ -120,6 +122,7 @@ type RayService rayv1.RayService
 var _ jobframework.GenericJob = (*RayService)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
+var _ jobframework.JobWithCustomRequeue = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -219,6 +222,13 @@ func (j *RayService) PodsReady(ctx context.Context) bool {
 
 func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
 	return jobframework.GetWorkloadslicingCustomAnnotations(j.Object(), podSets)
+}
+
+func (j *RayService) NeedRequeue(ctx context.Context, c client.Client) (bool, time.Duration, error) {
+	// There is possbility that a pod restarted in scheduling gated state and RayService object never change,
+	// thus Kueue has no chance to reconcile and ungate the pod. Use this method to trigger requeue and reconile
+	// RayService object later.
+	return true, requeDelaySeconds * time.Second, nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
