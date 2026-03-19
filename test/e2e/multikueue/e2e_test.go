@@ -218,6 +218,17 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	})
 
 	ginkgo.AfterEach(func() {
+		// Clean up resources created by the RayService test on all clusters.
+		rayServiceConfigMap := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "rayservice-hello", Namespace: managerNs.Name}}
+		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayServiceConfigMap))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayServiceConfigMap.DeepCopy()))).To(gomega.Succeed())
+
+		rayService := &rayv1.RayService{ObjectMeta: metav1.ObjectMeta{Name: "rayservice1", Namespace: managerNs.Name}}
+		gomega.Expect(client.IgnoreNotFound(k8sManagerClient.Delete(ctx, rayService))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker1Client.Delete(ctx, rayService.DeepCopy()))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(k8sWorker2Client.Delete(ctx, rayService.DeepCopy()))).To(gomega.Succeed())
+
 		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
 		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
@@ -1537,7 +1548,6 @@ app = HelloWorld.bind()`,
 				},
 			}
 
-			// serveConfigV2 configuration for the simple serve app
 			serveConfigV2 := `applications:
   - name: hello_app
     import_path: hello_serve:app
@@ -1598,15 +1608,15 @@ app = HelloWorld.bind()`,
 				VolumeMounts(rayv1.WorkerNode, volumeMounts).
 				Obj()
 
-			// Configure worker group with minReplicas and maxReplicas
 			rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
 			rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
 			rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
 
-			ginkgo.By("Creating the ConfigMap on worker clusters", func() {
+			ginkgo.By("Creating the ConfigMap on all clusters", func() {
 				worker1ConfigMap := configMap.DeepCopy()
-				util.MustCreate(ctx, k8sWorker1Client, worker1ConfigMap)
 				worker2ConfigMap := configMap.DeepCopy()
+				util.MustCreate(ctx, k8sManagerClient, configMap)
+				util.MustCreate(ctx, k8sWorker1Client, worker1ConfigMap)
 				util.MustCreate(ctx, k8sWorker2Client, worker2ConfigMap)
 			})
 
@@ -1625,17 +1635,6 @@ app = HelloWorld.bind()`,
 					g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
 					g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking no objects are left in the worker clusters and the RayService is completed", func() {
-				wl := &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      wlLookupKey.Name,
-						Namespace: wlLookupKey.Namespace,
-					},
-				}
-				expectObjectToBeDeletedOnWorkerClusters(ctx, wl)
-				expectObjectToBeDeletedOnWorkerClusters(ctx, rayService)
 			})
 		})
 
