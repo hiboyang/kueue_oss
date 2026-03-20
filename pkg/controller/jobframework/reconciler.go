@@ -657,23 +657,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if WorkloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		err := workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		if jobWithCustomRequeue, ok := job.(JobWithCustomRequeue); ok {
-			needRequeue, duration, err := jobWithCustomRequeue.NeedRequeue(ctx, r.client)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-			if needRequeue {
-				log.V(3).Info("Requeue job", "requeueAfter", duration)
-				return ctrl.Result{RequeueAfter: duration}, nil
-			} else {
-
-				return ctrl.Result{}, nil
-			}
-		}
+		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
 	}
 
 	// workload is admitted and job is running, nothing to do.
