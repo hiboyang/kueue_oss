@@ -20,10 +20,10 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -52,7 +52,6 @@ var (
 const (
 	headGroupPodSetName = "head"
 	FrameworkName       = "ray.io/rayservice"
-	requeDelaySeconds   = 10
 )
 
 func init() {
@@ -88,7 +87,9 @@ func newJob() jobframework.GenericJob {
 }
 
 func setup(b *builder.Builder, c client.Client) *builder.Builder {
-	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
+	return b.
+		Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner())).
+		Watches(&corev1.Pod{}, &raycluster.PodHandler{Client: c, ParentKind: "RayService"})
 }
 
 var reconciler rayServiceReconciler
@@ -122,7 +123,6 @@ type RayService rayv1.RayService
 var _ jobframework.GenericJob = (*RayService)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
-var _ jobframework.JobWithCustomRequeue = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -222,13 +222,6 @@ func (j *RayService) PodsReady(ctx context.Context) bool {
 
 func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
 	return jobframework.GetWorkloadslicingCustomAnnotations(j.Object(), podSets)
-}
-
-func (j *RayService) NeedRequeue(ctx context.Context, c client.Client) (bool, time.Duration, error) {
-	// There is possbility that a pod restarted in scheduling gated state and RayService object never change,
-	// thus Kueue has no chance to reconcile and ungate the pod. Use this method to trigger requeue and reconile
-	// RayService object later.
-	return true, requeDelaySeconds * time.Second, nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
