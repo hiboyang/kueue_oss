@@ -25,12 +25,15 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 var _ handler.EventHandler = (*PodHandler)(nil)
@@ -87,6 +90,7 @@ func (h *PodHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 		Namespace: pod.Namespace,
 		Name:      controllerRef.Name,
 	}, &cluster); err != nil {
+		ctrl.Log.V(3).Error(err, "Failed to get RayCluster for pod", "pod", pod.Name, "raycluster", controllerRef.Name)
 		return
 	}
 
@@ -95,10 +99,15 @@ func (h *PodHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 		return
 	}
 
-	q.Add(reconcile.Request{
+	// Only process pods that have the elastic-job scheduling gate.
+	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) {
+		return
+	}
+
+	q.AddAfter(reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Namespace: pod.Namespace,
 			Name:      parentRef.Name,
 		},
-	})
+	}, constants.UpdatesBatchPeriod)
 }

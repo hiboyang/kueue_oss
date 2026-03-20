@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 )
 
 func TestPodHandler(t *testing.T) {
@@ -64,13 +66,16 @@ func TestPodHandler(t *testing.T) {
 		return cluster
 	}
 
-	makePod := func(name, ns string, labels map[string]string, annotations map[string]string, ownerKind, ownerName string, ownerUID types.UID) *corev1.Pod {
+	makePod := func(name, ns string, labels map[string]string, annotations map[string]string, gates []corev1.PodSchedulingGate, ownerKind, ownerName string, ownerUID types.UID) *corev1.Pod {
 		pod := &corev1.Pod{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:        name,
 				Namespace:   ns,
 				Labels:      labels,
 				Annotations: annotations,
+			},
+			Spec: corev1.PodSpec{
+				SchedulingGates: gates,
 			},
 		}
 		if ownerKind != "" {
@@ -87,18 +92,20 @@ func TestPodHandler(t *testing.T) {
 		return pod
 	}
 
+	elasticGate := []corev1.PodSchedulingGate{{Name: kueue.ElasticJobSchedulingGate}}
+
 	testCases := map[string]struct {
 		pod            *corev1.Pod
 		clusterInStore *rayv1.RayCluster
 		parentKind     string
 		wantRequests   []reconcile.Request
 	}{
-		"pod with matching annotations, labels, and owner chain enqueues request": {
+		"pod with matching annotations, labels, gate, and owner chain enqueues request": {
 			pod: makePod("pod1", "ns", map[string]string{
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "RayCluster", "my-cluster", rayClusterUID),
+			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
 			wantRequests: []reconcile.Request{
@@ -108,7 +115,7 @@ func TestPodHandler(t *testing.T) {
 		"pod without workload annotation is skipped": {
 			pod: makePod("pod1", "ns", map[string]string{
 				rayutils.RayClusterLabelKey: "my-cluster",
-			}, nil, "RayCluster", "my-cluster", rayClusterUID),
+			}, nil, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -116,7 +123,7 @@ func TestPodHandler(t *testing.T) {
 		"pod without ray cluster label is skipped": {
 			pod: makePod("pod1", "ns", nil, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "RayCluster", "my-cluster", rayClusterUID),
+			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -126,7 +133,7 @@ func TestPodHandler(t *testing.T) {
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "", "", ""),
+			}, elasticGate, "", "", ""),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -136,7 +143,7 @@ func TestPodHandler(t *testing.T) {
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "StatefulSet", "my-sts", types.UID("sts-uid")),
+			}, elasticGate, "StatefulSet", "my-sts", types.UID("sts-uid")),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -146,7 +153,7 @@ func TestPodHandler(t *testing.T) {
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "RayCluster", "nonexistent-cluster", rayClusterUID),
+			}, elasticGate, "RayCluster", "nonexistent-cluster", rayClusterUID),
 			clusterInStore: nil,
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -156,7 +163,7 @@ func TestPodHandler(t *testing.T) {
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "RayCluster", "my-cluster", rayClusterUID),
+			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "", "", ""),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -166,7 +173,7 @@ func TestPodHandler(t *testing.T) {
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "RayCluster", "my-cluster", rayClusterUID),
+			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayService", "my-service", types.UID("svc-uid")),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -176,7 +183,7 @@ func TestPodHandler(t *testing.T) {
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
 				kueue.WorkloadAnnotation: "my-workload",
-			}, "RayCluster", "my-cluster", rayClusterUID),
+			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayService", "my-rayservice", types.UID("svc-uid")),
 			parentKind:     "RayService",
 			wantRequests: []reconcile.Request{
@@ -185,6 +192,16 @@ func TestPodHandler(t *testing.T) {
 		},
 		"non-pod object is skipped": {
 			pod:            nil, // will pass a non-pod object
+			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
+			parentKind:     "RayJob",
+			wantRequests:   nil,
+		},
+		"pod without elastic-job scheduling gate is skipped": {
+			pod: makePod("pod1", "ns", map[string]string{
+				rayutils.RayClusterLabelKey: "my-cluster",
+			}, map[string]string{
+				kueue.WorkloadAnnotation: "my-workload",
+			}, nil, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
 			wantRequests:   nil,
@@ -219,10 +236,25 @@ func TestPodHandler(t *testing.T) {
 			}
 
 			var gotRequests []reconcile.Request
-			for q.Len() > 0 {
-				item, _ := q.Get()
-				gotRequests = append(gotRequests, item)
-				q.Done(item)
+			// Items are enqueued via AddAfter with constants.UpdatesBatchPeriod (1s).
+			waitDuration := constants.UpdatesBatchPeriod + 500*time.Millisecond
+			if len(tc.wantRequests) > 0 {
+				for range len(tc.wantRequests) {
+					// q.Get() blocks until the delayed item becomes available.
+					item, shutdown := q.Get()
+					if shutdown {
+						t.Fatal("Queue shut down unexpectedly")
+					}
+					gotRequests = append(gotRequests, item)
+					q.Done(item)
+				}
+			} else {
+				// Confirm nothing was enqueued after the batch period elapses.
+				time.Sleep(waitDuration)
+				if q.Len() > 0 {
+					item, _ := q.Get()
+					t.Errorf("Expected no requests but got: %v", item)
+				}
 			}
 
 			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
