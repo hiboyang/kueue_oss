@@ -39,13 +39,18 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerG
 // ElasticWorkloadNameProvider interface contains methods to provide extra information to build workload name for elastic job
 type ElasticWorkloadNameProvider interface {
 	GetGeneration() int64
+	GetResourceVersion() string
 	GetAnnotations() map[string]string
 }
 
 func GetElasticWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, elasticWorkloadNameProvider ElasticWorkloadNameProvider) string {
-	extra := elasticWorkloadNameProvider.GetAnnotations()[PodsetReplicaSizesAnnotation]
-	if extra == "" {
+	extra := ""
+	if elasticWorkloadNameProvider.GetAnnotations()[PodsetReplicaSizesAnnotation] == "" {
+		// Use generation for workload name to keep backward compatible
 		extra = strconv.FormatInt(elasticWorkloadNameProvider.GetGeneration(), 10)
+	} else {
+		// Use resourceVersion to avoid workload name conflict
+		extra = elasticWorkloadNameProvider.GetResourceVersion()
 	}
 	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
 }

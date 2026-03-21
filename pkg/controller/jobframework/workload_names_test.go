@@ -45,12 +45,13 @@ func TestGetElasticWorkloadName(t *testing.T) {
 			},
 			wantPrefix: "job-my-job-",
 		},
-		"uses annotation when present": {
+		"uses resourceVersion when annotation present": {
 			ownerName: "my-job",
 			ownerUID:  "uid-123",
 			ownerGVK:  gvk,
 			provider: &fakeElasticProvider{
-				generation: 1,
+				generation:      1,
+				resourceVersion: "100",
 				annotations: map[string]string{
 					PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
 				},
@@ -67,14 +68,15 @@ func TestGetElasticWorkloadName(t *testing.T) {
 			},
 			wantPrefix: "job-my-job-",
 		},
-		"different annotation produces different name": {
+		"different resourceVersion produces different name": {
 			ownerName: "my-job",
 			ownerUID:  "uid-123",
 			ownerGVK:  gvk,
 			provider: &fakeElasticProvider{
-				generation: 1,
+				generation:      1,
+				resourceVersion: "200",
 				annotations: map[string]string{
-					PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
+					PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
 				},
 			},
 			wantPrefix: "job-my-job-",
@@ -104,32 +106,52 @@ func TestGetElasticWorkloadName(t *testing.T) {
 		}
 	})
 
-	t.Run("different annotation values produce different names", func(t *testing.T) {
+	t.Run("different resourceVersion values produce different names", func(t *testing.T) {
 		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:  1,
-			annotations: map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
+			generation:      1,
+			resourceVersion: "100",
+			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
 		})
 		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:  1,
-			annotations: map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`},
+			generation:      1,
+			resourceVersion: "200",
+			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
 		})
 		if name1 == name2 {
-			t.Errorf("expected different names for different annotations, got %q for both", name1)
+			t.Errorf("expected different names for different resourceVersions, got %q for both", name1)
 		}
 	})
 
-	t.Run("annotation takes priority over generation", func(t *testing.T) {
-		// Same annotation but different generation should produce the same name.
+	t.Run("same resourceVersion same name regardless of annotation content", func(t *testing.T) {
 		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:  1,
-			annotations: map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
+			generation:      1,
+			resourceVersion: "100",
+			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
 		})
 		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:  99,
-			annotations: map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
+			generation:      1,
+			resourceVersion: "100",
+			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`},
 		})
 		if diff := cmp.Diff(name1, name2); diff != "" {
-			t.Errorf("expected same name when annotation matches regardless of generation (-want,+got):\n%s", diff)
+			t.Errorf("expected same name for same resourceVersion regardless of annotation content (-want,+got):\n%s", diff)
+		}
+	})
+
+	t.Run("resourceVersion takes priority over generation", func(t *testing.T) {
+		// Same resourceVersion but different generation should produce the same name.
+		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
+			generation:      1,
+			resourceVersion: "100",
+			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
+		})
+		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
+			generation:      99,
+			resourceVersion: "100",
+			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
+		})
+		if diff := cmp.Diff(name1, name2); diff != "" {
+			t.Errorf("expected same name when resourceVersion matches regardless of generation (-want,+got):\n%s", diff)
 		}
 	})
 
@@ -151,12 +173,17 @@ func TestGetElasticWorkloadName(t *testing.T) {
 }
 
 type fakeElasticProvider struct {
-	generation  int64
-	annotations map[string]string
+	generation      int64
+	resourceVersion string
+	annotations     map[string]string
 }
 
 func (f *fakeElasticProvider) GetGeneration() int64 {
 	return f.generation
+}
+
+func (f *fakeElasticProvider) GetResourceVersion() string {
+	return f.resourceVersion
 }
 
 func (f *fakeElasticProvider) GetAnnotations() map[string]string {
