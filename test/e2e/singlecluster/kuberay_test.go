@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -395,6 +396,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(256)])`,
 				g.Expect(runningWorkers).To(gomega.HaveLen(5), "Expected 5 running worker pods")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		// Wait for pods to stabilize before deleting one.
+		time.Sleep(30 * time.Second)
 
 		var deletedPodName string
 		ginkgo.By("Deleting one worker pod", func() {
