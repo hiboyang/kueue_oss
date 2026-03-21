@@ -89,8 +89,9 @@ func newJob() jobframework.GenericJob {
 
 func setup(b *builder.Builder, c client.Client) *builder.Builder {
 	return b.
-		Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner())).
-		Watches(&corev1.Pod{}, &raycluster.PodHandler{Client: c, ParentKind: "RayJob"})
+		Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner()))
+	// Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayJob{}, handler.OnlyControllerOwner())).
+	// Watches(&corev1.Pod{}, &raycluster.PodHandler{Client: c, ParentKind: "RayJob"})
 }
 
 var reconciler rayJobReconciler
