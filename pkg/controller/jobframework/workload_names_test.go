@@ -151,12 +151,17 @@ func TestGetElasticWorkloadName(t *testing.T) {
 }
 
 type fakeElasticProvider struct {
-	generation  int64
-	annotations map[string]string
+	generation      int64
+	resourceVersion string
+	annotations     map[string]string
 }
 
 func (f *fakeElasticProvider) GetGeneration() int64 {
 	return f.generation
+}
+
+func (f *fakeElasticProvider) GetResourceVersion() string {
+	return f.resourceVersion
 }
 
 func (f *fakeElasticProvider) GetAnnotations() map[string]string {
