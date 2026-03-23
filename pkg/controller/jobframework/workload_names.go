@@ -33,26 +33,7 @@ const (
 )
 
 func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
-	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, "")
-}
-
-// ElasticWorkloadNameProvider interface contains methods to provide extra information to build workload name for elastic job
-type ElasticWorkloadNameProvider interface {
-	GetGeneration() int64
-	GetResourceVersion() string
-	GetAnnotations() map[string]string
-}
-
-func GetElasticWorkloadName(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, elasticWorkloadNameProvider ElasticWorkloadNameProvider) string {
-	extra := ""
-	if elasticWorkloadNameProvider.GetAnnotations()[PodsetReplicaSizesAnnotation] == "" {
-		// Use generation for workload name to keep backward compatible
-		extra = strconv.FormatInt(elasticWorkloadNameProvider.GetGeneration(), 10)
-	} else {
-		// Use resourceVersion to avoid workload name conflict
-		extra = elasticWorkloadNameProvider.GetResourceVersion()
-	}
-	return generateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
+	return GenerateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, "")
 }
 
 func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
@@ -63,7 +44,12 @@ func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK s
 	return prefixedName
 }
 
-func generateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
+func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
+	extra := strconv.FormatInt(generation, 10)
+	return GenerateWorkloadNameWithExtra(ownerName, ownerUID, ownerGVK, extra)
+}
+
+func GenerateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	prefixedName := GenerateWorkloadNamePrefix(ownerName, ownerUID, ownerGVK)
 	return prefixedName + "-" + getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength]
 }

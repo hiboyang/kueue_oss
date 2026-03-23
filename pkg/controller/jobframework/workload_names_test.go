@@ -25,138 +25,87 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
-func TestGetElasticWorkloadName(t *testing.T) {
+func TestGenerateWorkloadNameWithExtra(t *testing.T) {
 	gvk := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 
 	cases := map[string]struct {
 		ownerName  string
 		ownerUID   types.UID
 		ownerGVK   schema.GroupVersionKind
-		provider   ElasticWorkloadNameProvider
+		extra      string
 		wantPrefix string
 	}{
-		"uses generation when no annotation": {
-			ownerName: "my-job",
-			ownerUID:  "uid-123",
-			ownerGVK:  gvk,
-			provider: &fakeElasticProvider{
-				generation:  1,
-				annotations: nil,
-			},
+		"empty extra": {
+			ownerName:  "my-job",
+			ownerUID:   "uid-123",
+			ownerGVK:   gvk,
+			extra:      "",
 			wantPrefix: "job-my-job-",
 		},
-		"uses resourceVersion when annotation present": {
-			ownerName: "my-job",
-			ownerUID:  "uid-123",
-			ownerGVK:  gvk,
-			provider: &fakeElasticProvider{
-				generation:      1,
-				resourceVersion: "100",
-				annotations: map[string]string{
-					PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
-				},
-			},
+		"generation as extra": {
+			ownerName:  "my-job",
+			ownerUID:   "uid-123",
+			ownerGVK:   gvk,
+			extra:      "1",
 			wantPrefix: "job-my-job-",
 		},
-		"different generation produces different name": {
-			ownerName: "my-job",
-			ownerUID:  "uid-123",
-			ownerGVK:  gvk,
-			provider: &fakeElasticProvider{
-				generation:  2,
-				annotations: nil,
-			},
+		"resourceVersion as extra": {
+			ownerName:  "my-job",
+			ownerUID:   "uid-123",
+			ownerGVK:   gvk,
+			extra:      "100",
 			wantPrefix: "job-my-job-",
 		},
-		"different resourceVersion produces different name": {
-			ownerName: "my-job",
-			ownerUID:  "uid-123",
-			ownerGVK:  gvk,
-			provider: &fakeElasticProvider{
-				generation:      1,
-				resourceVersion: "200",
-				annotations: map[string]string{
-					PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
-				},
-			},
+		"custom extra string": {
+			ownerName:  "my-job",
+			ownerUID:   "uid-123",
+			ownerGVK:   gvk,
+			extra:      "custom-part",
 			wantPrefix: "job-my-job-",
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := GetElasticWorkloadName(tc.ownerName, tc.ownerUID, tc.ownerGVK, tc.provider)
+			got := GenerateWorkloadNameWithExtra(tc.ownerName, tc.ownerUID, tc.ownerGVK, tc.extra)
 			if !strings.HasPrefix(got, tc.wantPrefix) {
-				t.Errorf("GetElasticWorkloadName() = %q, want prefix %q", got, tc.wantPrefix)
+				t.Errorf("GenerateWorkloadNameWithExtra() = %q, want prefix %q", got, tc.wantPrefix)
 			}
 			// Name should have prefix + "-" + 5-char hash
 			prefix := GenerateWorkloadNamePrefix(tc.ownerName, tc.ownerUID, tc.ownerGVK)
 			if len(got) != len(prefix)+1+hashLength {
-				t.Errorf("GetElasticWorkloadName() length = %d, want %d (prefix=%d + 1 + hash=%d)", len(got), len(prefix)+1+hashLength, len(prefix), hashLength)
+				t.Errorf("GenerateWorkloadNameWithExtra() length = %d, want %d (prefix=%d + 1 + hash=%d)", len(got), len(prefix)+1+hashLength, len(prefix), hashLength)
 			}
 		})
 	}
 
 	// Verify that different extra values produce different names.
-	t.Run("different generation values produce different names", func(t *testing.T) {
-		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{generation: 1})
-		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{generation: 2})
+	t.Run("different extra values produce different names", func(t *testing.T) {
+		name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "1")
+		name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "2")
 		if name1 == name2 {
-			t.Errorf("expected different names for different generations, got %q for both", name1)
+			t.Errorf("expected different names for different extra values, got %q for both", name1)
 		}
 	})
 
 	t.Run("different resourceVersion values produce different names", func(t *testing.T) {
-		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:      1,
-			resourceVersion: "100",
-			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
-		})
-		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:      1,
-			resourceVersion: "200",
-			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
-		})
+		name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "100")
+		name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "200")
 		if name1 == name2 {
-			t.Errorf("expected different names for different resourceVersions, got %q for both", name1)
+			t.Errorf("expected different names for different extra values, got %q for both", name1)
 		}
 	})
 
-	t.Run("same resourceVersion same name regardless of annotation content", func(t *testing.T) {
-		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:      1,
-			resourceVersion: "100",
-			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
-		})
-		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:      1,
-			resourceVersion: "100",
-			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`},
-		})
+	t.Run("same extra produces same name", func(t *testing.T) {
+		name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "100")
+		name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "100")
 		if diff := cmp.Diff(name1, name2); diff != "" {
-			t.Errorf("expected same name for same resourceVersion regardless of annotation content (-want,+got):\n%s", diff)
-		}
-	})
-
-	t.Run("resourceVersion takes priority over generation", func(t *testing.T) {
-		// Same resourceVersion but different generation should produce the same name.
-		name1 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:      1,
-			resourceVersion: "100",
-			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
-		})
-		name2 := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{
-			generation:      99,
-			resourceVersion: "100",
-			annotations:     map[string]string{PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`},
-		})
-		if diff := cmp.Diff(name1, name2); diff != "" {
-			t.Errorf("expected same name when resourceVersion matches regardless of generation (-want,+got):\n%s", diff)
+			t.Errorf("expected same name for same extra value (-want,+got):\n%s", diff)
 		}
 	})
 
 	t.Run("same prefix as GetWorkloadNameForOwnerWithGVK", func(t *testing.T) {
-		elasticName := GetElasticWorkloadName("my-job", "uid-123", gvk, &fakeElasticProvider{generation: 1})
+		elasticName := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "1")
 		staticName := GetWorkloadNameForOwnerWithGVK("my-job", "uid-123", gvk)
 		prefix := GenerateWorkloadNamePrefix("my-job", "uid-123", gvk)
 		if !strings.HasPrefix(elasticName, prefix) {
@@ -172,20 +121,30 @@ func TestGetElasticWorkloadName(t *testing.T) {
 	})
 }
 
-type fakeElasticProvider struct {
-	generation      int64
-	resourceVersion string
-	annotations     map[string]string
-}
+func TestGenerateWorkloadNameWithGeneration(t *testing.T) {
+	gvk := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 
-func (f *fakeElasticProvider) GetGeneration() int64 {
-	return f.generation
-}
+	t.Run("different generations produce different names", func(t *testing.T) {
+		name1 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 1)
+		name2 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 2)
+		if name1 == name2 {
+			t.Errorf("expected different names for different generations, got %q for both", name1)
+		}
+	})
 
-func (f *fakeElasticProvider) GetResourceVersion() string {
-	return f.resourceVersion
-}
+	t.Run("same generation produces same name", func(t *testing.T) {
+		name1 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 1)
+		name2 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 1)
+		if diff := cmp.Diff(name1, name2); diff != "" {
+			t.Errorf("expected same name for same generation (-want,+got):\n%s", diff)
+		}
+	})
 
-func (f *fakeElasticProvider) GetAnnotations() map[string]string {
-	return f.annotations
+	t.Run("consistent with GenerateWorkloadNameWithExtra using string generation", func(t *testing.T) {
+		nameFromGeneration := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 42)
+		nameFromExtra := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "42")
+		if diff := cmp.Diff(nameFromGeneration, nameFromExtra); diff != "" {
+			t.Errorf("GenerateWorkloadNameWithGeneration and GenerateWorkloadNameWithExtra should produce same result (-want,+got):\n%s", diff)
+		}
+	})
 }

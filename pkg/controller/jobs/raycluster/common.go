@@ -19,9 +19,11 @@ package raycluster
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -251,4 +253,13 @@ func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, h
 		podSetAnnotationsPathByName[kueue.NewPodSetReference(wgs.GroupName)] = workerGroupSpecsPath.Index(i).Child("template", "metadata", "annotations")
 	}
 	return podSetAnnotationsPathByName
+}
+
+func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {
+	extra := strconv.FormatInt(objectMeta.GetGeneration(), 10)
+	rayClusterGeneration := objectMeta.GetAnnotations()[jobframework.RayClusterGenerationAnnotation]
+	if rayClusterGeneration != "" {
+		extra += "_" + rayClusterGeneration
+	}
+	return extra
 }

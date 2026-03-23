@@ -162,7 +162,7 @@ func needElasticJobSync(log logr.Logger, workloadName string, localJob, remoteJo
 	}
 	oldParallelism := ptr.Deref(remoteJob.Spec.Parallelism, 0)
 	newParallelism := ptr.Deref(localJob.Spec.Parallelism, 0)
-	newWorkloadName := jobframework.GetElasticWorkloadName(localJob.GetName(), localJob.GetUID(), gvk, &localJob.ObjectMeta)
+	newWorkloadName := jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(localJob.GetName(), localJob.GetUID(), gvk, localJob.GetGeneration())
 
 	// Detect and skip stale local Workload updates caused by a Job scale-up event.
 	//

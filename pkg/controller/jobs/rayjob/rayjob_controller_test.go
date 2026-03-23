@@ -792,14 +792,15 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				jobframework.RayClusterGenerationAnnotation:         "0",
+				jobframework.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
 			},
 			wantGroupCount: 5,
 		},
 		"skip patch when annotation already matches": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
+				Annotation(jobframework.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -813,7 +814,7 @@ func TestGetCustomAnnotations(t *testing.T) {
 		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
+				Annotation(jobframework.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"group1","count":6}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 4)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -822,14 +823,15 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 4)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
+				jobframework.RayClusterGenerationAnnotation:         "0",
+				jobframework.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":4}]`,
 			},
 			wantGroupCount: 4,
 		},
 		"annotation updated when podset count differs from annotation length": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-				Annotation(jobframework.PodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
+				Annotation(jobframework.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"group1","count":5}]`).
 				WithHeadGroupSpec(headSpec).
 				WithWorkerGroups(workerGroup("group1", 1)).
 				WithEnableAutoscaling(ptr.To(true)).
@@ -838,7 +840,8 @@ func TestGetCustomAnnotations(t *testing.T) {
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
 			wantCustomAnnotation: map[string]string{
-				jobframework.PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+				jobframework.RayClusterGenerationAnnotation:         "0",
+				jobframework.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
 			},
 			wantGroupCount: 5,
 		},

@@ -507,11 +507,11 @@ func TestReconcileGenericJobWithCustomAnnotations(t *testing.T) {
 		"patches custom annotations onto job when GetCustomAnnotations returns annotations": {
 			job: baseJob.DeepCopy(),
 			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
 			},
 			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":3}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
 			},
 		},
 		"does not patch when GetCustomAnnotations returns nil": {
@@ -530,63 +530,63 @@ func TestReconcileGenericJobWithCustomAnnotations(t *testing.T) {
 		},
 		"updates annotation when value changes (scale up)": {
 			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":1}]`).
+				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"main","count":1}]`).
 				Obj(),
 			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
 			},
 			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":5}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
 			},
 		},
 		"updates annotation when value changes (scale down)": {
 			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":5}]`).
+				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"main","count":5}]`).
 				Obj(),
 			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":2}]`,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":2}]`,
 			},
 			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":2}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":2}]`,
 			},
 		},
 		"no change when annotation already matches": {
 			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":3}]`).
+				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"main","count":3}]`).
 				Obj(),
 			customAnnotations: nil,
 			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":3}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
 			},
 		},
 		"skips patch when custom annotations already match existing values": {
 			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":5}]`).
+				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"main","count":5}]`).
 				Obj(),
 			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
 			},
 			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":5}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":5}]`,
 			},
 		},
 		"patches only changed annotation when some already match": {
 			job: baseJob.Clone().
-				SetAnnotation(PodsetReplicaSizesAnnotation, `[{"name":"main","count":3}]`).
+				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"main","count":3}]`).
 				SetAnnotation("custom-annotation", "old-value").
 				Obj(),
 			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
-				"custom-annotation":          "new-value",
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
+				"custom-annotation":                    "new-value",
 			},
 			wantAnnotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"main","count":3}]`,
-				"custom-annotation":                  "new-value",
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
+				"custom-annotation":                    "new-value",
 			},
 		},
 		"returns error when GetCustomAnnotations fails": {
@@ -597,7 +597,7 @@ func TestReconcileGenericJobWithCustomAnnotations(t *testing.T) {
 		"returns error when annotation patch fails": {
 			job: baseJob.DeepCopy(),
 			customAnnotations: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"main","count":3}]`,
 			},
 			patchInterceptErr: errors.New("patch conflict"),
 			wantErrMsg:        "failed to update custom annotations on job",
