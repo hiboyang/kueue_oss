@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -30,11 +31,15 @@ import (
 )
 
 const (
-	// PodsetReplicaSizesAnnotation is set on the job when autoscaling causes
+	// RayClusterPodsetReplicaSizesAnnotation is set on the job when autoscaling causes
 	// PodSet replica sizes to differ from the original spec. The value is a JSON
 	// array compatible with []kueue.PodSet, containing only the changed PodSets.
 	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
-	PodsetReplicaSizesAnnotation = "kueue.x-k8s.io/podset-replica-sizes"
+	RayClusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
+	// RayClusterGenerationAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is the generation of
+	// the RayCluster.
+	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -109,7 +114,7 @@ func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32
 	}
 	var podSets []PodSetReplicaSize
 	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", PodsetReplicaSizesAnnotation, err)
+		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
 	}
 	for _, ps := range podSets {
 		counts[ps.Name] = ps.Count
@@ -126,9 +131,9 @@ func SerializePodSetCounts(podSets []kueue.PodSet) ([]byte, error) {
 	return json.Marshal(sizes)
 }
 
-func GetWorkloadslicingCustomAnnotations(object client.Object, podSets []kueue.PodSet) (map[string]string, error) {
+func GetWorkloadslicingRayClusterCustomAnnotations(object client.Object, podSets []kueue.PodSet) (map[string]string, error) {
 	if workloadslicing.Enabled(object) {
-		previousCounts, err := ParsePodSetReplicaSizes(object.GetAnnotations()[PodsetReplicaSizesAnnotation])
+		previousCounts, err := ParsePodSetReplicaSizes(object.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation])
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +148,8 @@ func GetWorkloadslicingCustomAnnotations(object client.Object, podSets []kueue.P
 				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
 			}
 			return map[string]string{
-				PodsetReplicaSizesAnnotation: string(podSetsJSON),
+				RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
+				RayClusterGenerationAnnotation:         strconv.FormatInt(object.GetGeneration(), 10),
 			}, nil
 		}
 	}

@@ -275,13 +275,14 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "worker", Count: 3},
 			},
 			wantAnnotation: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation:         "0",
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 		},
 		"no change when annotation matches": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -291,15 +292,16 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 		},
 		"updated when counts differ": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
-				PodsetReplicaSizesAnnotation:         `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
 				{Name: "worker", Count: 5},
 			},
 			wantAnnotation: map[string]string{
-				PodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
+				RayClusterGenerationAnnotation:         "0",
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
 			},
 		},
 	}
@@ -316,7 +318,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			// Use a corev1.ConfigMap as a simple client.Object wrapper
 			cm := &corev1.ConfigMap{ObjectMeta: *obj}
 
-			got, err := GetWorkloadslicingCustomAnnotations(cm, tc.podSets)
+			got, err := GetWorkloadslicingRayClusterCustomAnnotations(cm, tc.podSets)
 			if err != nil {
 				t.Fatalf("GetWorkloadslicingCustomAnnotations() unexpected error: %v", err)
 			}
