@@ -73,6 +73,11 @@ func (h *PodHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 		return
 	}
 
+	// Only process pods with workload slicing.
+	if pod.Annotations[kueue.WorkloadSliceNameAnnotation] == "" {
+		return
+	}
+
 	// Only process pods belonging to a RayCluster.
 	if pod.Labels[rayutils.RayClusterLabelKey] == "" {
 		return

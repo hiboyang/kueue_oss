@@ -104,7 +104,8 @@ func TestPodHandler(t *testing.T) {
 			pod: makePod("pod1", "ns", map[string]string{
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
-				kueue.WorkloadAnnotation: "my-workload",
+				kueue.WorkloadAnnotation:          "my-workload",
+				kueue.WorkloadSliceNameAnnotation: "my-workload-slice",
 			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayJob", "my-rayjob", rayJobUID),
 			parentKind:     "RayJob",
@@ -182,7 +183,8 @@ func TestPodHandler(t *testing.T) {
 			pod: makePod("pod1", "ns", map[string]string{
 				rayutils.RayClusterLabelKey: "my-cluster",
 			}, map[string]string{
-				kueue.WorkloadAnnotation: "my-workload",
+				kueue.WorkloadAnnotation:          "my-workload",
+				kueue.WorkloadSliceNameAnnotation: "my-workload-slice",
 			}, elasticGate, "RayCluster", "my-cluster", rayClusterUID),
 			clusterInStore: makeRayCluster("my-cluster", "ns", "RayService", "my-rayservice", types.UID("svc-uid")),
 			parentKind:     "RayService",
