@@ -18,6 +18,7 @@ package raycluster
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -36,6 +37,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
+)
+
+const (
+	// RayClusterPodsetReplicaSizesAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is a JSON
+	// array compatible with []kueue.PodSet, containing only the changed PodSets.
+	// This annotation is alpha-level enabled by the ElasticJobsViaWorkloadSlices.
+	RayClusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
+	// RayClusterGenerationAnnotation is set on the job when autoscaling causes
+	// PodSet replica sizes to differ from the original spec. The value is the generation of
+	// the RayCluster.
+	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
 )
 
 // BuildPodSets builds PodSets from RayClusterSpec
@@ -257,9 +270,88 @@ func BuildPodSetAnnotationsPathByNameMap(rayClusterSpec *rayv1.RayClusterSpec, h
 
 func GetWorkloadNameExtraPart(objectMeta metav1.Object) string {
 	extra := strconv.FormatInt(objectMeta.GetGeneration(), 10)
-	rayClusterGeneration := objectMeta.GetAnnotations()[jobframework.RayClusterGenerationAnnotation]
+	rayClusterGeneration := objectMeta.GetAnnotations()[RayClusterGenerationAnnotation]
 	if rayClusterGeneration != "" {
 		extra += "_" + rayClusterGeneration
 	}
 	return extra
+}
+
+// ComparePodSetCounts returns true if any PodSet count differs from referenceCounts.
+func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSetReference]int32) bool {
+	if len(podSets) != len(referenceCounts) {
+		return true
+	}
+	for _, ps := range podSets {
+		if refCount, ok := referenceCounts[ps.Name]; !ok || ps.Count != refCount {
+			return true
+		}
+	}
+	return false
+}
+
+// ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
+// Returns an empty map if the annotation is absent or empty.
+func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
+	counts := make(map[kueue.PodSetReference]int32)
+	if annotation == "" {
+		return counts, nil
+	}
+	var podSets []jobframework.PodSetReplicaSize
+	if err := json.Unmarshal([]byte(annotation), &podSets); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal %s annotation: %w", RayClusterPodsetReplicaSizesAnnotation, err)
+	}
+	for _, ps := range podSets {
+		counts[ps.Name] = ps.Count
+	}
+	return counts, nil
+}
+
+// SerializePodSetCounts converts PodSets into a JSON byte slice of podSetReplicaSize entries.
+func SerializePodSetCounts(podSets []kueue.PodSet) ([]byte, error) {
+	sizes := make([]jobframework.PodSetReplicaSize, len(podSets))
+	for i, ps := range podSets {
+		sizes[i] = jobframework.PodSetReplicaSize{Name: ps.Name, Count: ps.Count}
+	}
+	return json.Marshal(sizes)
+}
+
+func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, podSets []kueue.PodSet, rayClusterName string) (map[string]string, error) {
+	if workloadslicing.Enabled(jobObject) {
+		log := ctrl.LoggerFrom(ctx)
+
+		previousCounts, err := ParsePodSetReplicaSizes(jobObject.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation])
+		if err != nil {
+			return nil, err
+		}
+
+		rayClusterGeneration := ""
+
+		var rayClusterObj rayv1.RayCluster
+		err = c.Get(ctx, types.NamespacedName{
+			Namespace: jobObject.GetNamespace(),
+			Name:      rayClusterName,
+		}, &rayClusterObj)
+		if err != nil {
+			log.Error(err, "Failed to get ray cluster ", "rayCluster", rayClusterName)
+		} else {
+			rayClusterGeneration = strconv.FormatInt(rayClusterObj.GetGeneration(), 10)
+		}
+
+		// Compare current counts against previous annotation. If any differ, update the in-memory
+		// annotation with ALL current podSet counts (not just the changed ones). The actual API server
+		// patch is handled by the reconciler.
+		changed := ComparePodSetCounts(podSets, previousCounts)
+		if changed {
+			podSetsJSON, err := SerializePodSetCounts(podSets)
+			if err != nil {
+				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
+			}
+			return map[string]string{
+				RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
+				RayClusterGenerationAnnotation:         rayClusterGeneration,
+			}, nil
+		}
+	}
+	return nil, nil
 }

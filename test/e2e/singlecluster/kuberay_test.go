@@ -36,7 +36,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
@@ -369,9 +368,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayJob := &rayv1.RayJob{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(jobframework.RayClusterPodsetReplicaSizesAnnotation),
+				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
 					"Expected podset-replica-sizes annotation on RayJob after scaling up")
-				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[jobframework.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
+				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(count).To(gomega.Equal(int32(5)),
 					"Expected workers-group-0 count = 5 after scaling up")
@@ -405,9 +404,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayJob := &rayv1.RayJob{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(jobframework.RayClusterPodsetReplicaSizesAnnotation),
+				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
 					"Expected podset-replica-sizes annotation on RayJob after scaling down")
-				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[jobframework.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
+				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(count).To(gomega.Equal(int32(1)),
 					"Expected workers-group-0 count = 1 after scaling down")
