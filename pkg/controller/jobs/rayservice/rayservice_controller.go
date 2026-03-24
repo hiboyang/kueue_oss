@@ -219,7 +219,7 @@ func (j *RayService) PodsReady(ctx context.Context) bool {
 }
 
 func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
-	return jobframework.GetWorkloadslicingRayClusterCustomAnnotations(j.Object(), podSets)
+	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), podSets, j.Status.ActiveServiceStatus.RayClusterName)
 }
 
 func (j *RayService) GetWorkloadNameExtraPart() string {
