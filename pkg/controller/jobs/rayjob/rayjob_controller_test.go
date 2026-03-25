@@ -809,8 +809,11 @@ func TestGetCustomAnnotations(t *testing.T) {
 			rayCluster: testingraycluster.MakeCluster("test-cluster", "ns").
 				WithWorkerGroups(workerGroup("group1", 5)).
 				Obj(),
-			wantCustomAnnotation: nil,
-			wantGroupCount:       5,
+			wantCustomAnnotation: map[string]string{
+				raycluster.RayClusterGenerationAnnotation:         "0",
+				raycluster.RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"group1","count":5}]`,
+			},
+			wantGroupCount: 5,
 		},
 		"annotation updated after scale-down": {
 			rayJob: testingrayutil.MakeJob("rayjob", "ns").

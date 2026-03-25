@@ -320,38 +320,31 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 	if workloadslicing.Enabled(jobObject) {
 		log := ctrl.LoggerFrom(ctx)
 
-		previousCounts, err := ParsePodSetReplicaSizes(jobObject.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation])
-		if err != nil {
-			return nil, err
-		}
-
 		rayClusterGeneration := ""
 
 		var rayClusterObj rayv1.RayCluster
-		err = c.Get(ctx, types.NamespacedName{
+		err := c.Get(ctx, types.NamespacedName{
 			Namespace: jobObject.GetNamespace(),
 			Name:      rayClusterName,
 		}, &rayClusterObj)
 		if err != nil {
-			log.Error(err, "Failed to get ray cluster ", "rayCluster", rayClusterName)
+			if apierrors.IsNotFound(err) {
+				log.V(3).Info("RayCluster not found, skipping generation annotation", "rayCluster", rayClusterName)
+			} else {
+				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
+			}
 		} else {
 			rayClusterGeneration = strconv.FormatInt(rayClusterObj.GetGeneration(), 10)
 		}
 
-		// Compare current counts against previous annotation. If any differ, update the in-memory
-		// annotation with ALL current podSet counts (not just the changed ones). The actual API server
-		// patch is handled by the reconciler.
-		changed := ComparePodSetCounts(podSets, previousCounts)
-		if changed {
-			podSetsJSON, err := SerializePodSetCounts(podSets)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
-			}
-			return map[string]string{
-				RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
-				RayClusterGenerationAnnotation:         rayClusterGeneration,
-			}, nil
+		podSetsJSON, err := SerializePodSetCounts(podSets)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal updated podsets: %w", err)
 		}
+		return map[string]string{
+			RayClusterPodsetReplicaSizesAnnotation: string(podSetsJSON),
+			RayClusterGenerationAnnotation:         rayClusterGeneration,
+		}, nil
 	}
 	return nil, nil
 }

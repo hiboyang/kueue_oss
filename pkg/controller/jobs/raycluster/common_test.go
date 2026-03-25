@@ -1080,16 +1080,23 @@ func TestSerializePodSetCounts(t *testing.T) {
 
 func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 	testCases := map[string]struct {
-		annotations    map[string]string
-		podSets        []kueue.PodSet
-		wantAnnotation map[string]string
+		annotations      map[string]string
+		podSets          []kueue.PodSet
+		rayClusterName   string
+		registerRayType  bool
+		createRayCluster bool
+		wantAnnotation   map[string]string
+		wantErr          bool
 	}{
 		"workload slicing disabled returns nil": {
 			annotations: map[string]string{},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
 			},
-			wantAnnotation: nil,
+			rayClusterName:   "test-raycluster",
+			registerRayType:  true,
+			createRayCluster: true,
+			wantAnnotation:   nil,
 		},
 		"first call sets annotation": {
 			annotations: map[string]string{
@@ -1099,12 +1106,15 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 				{Name: "worker", Count: 3},
 			},
+			rayClusterName:   "test-raycluster",
+			registerRayType:  true,
+			createRayCluster: true,
 			wantAnnotation: map[string]string{
 				RayClusterGenerationAnnotation:         "0",
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
 			},
 		},
-		"no change when annotation matches": {
+		"returns annotations even when counts match existing annotation": {
 			annotations: map[string]string{
 				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
@@ -1113,7 +1123,13 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 				{Name: "worker", Count: 3},
 			},
-			wantAnnotation: nil,
+			rayClusterName:   "test-raycluster",
+			registerRayType:  true,
+			createRayCluster: true,
+			wantAnnotation: map[string]string{
+				RayClusterGenerationAnnotation:         "0",
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+			},
 		},
 		"updated when counts differ": {
 			annotations: map[string]string{
@@ -1124,10 +1140,38 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 				{Name: "worker", Count: 5},
 			},
+			rayClusterName:   "test-raycluster",
+			registerRayType:  true,
+			createRayCluster: true,
 			wantAnnotation: map[string]string{
 				RayClusterGenerationAnnotation:         "0",
 				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
 			},
+		},
+		"raycluster not found returns annotations with empty generation": {
+			annotations: map[string]string{
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+			},
+			podSets: []kueue.PodSet{
+				{Name: "head", Count: 1},
+				{Name: "worker", Count: 3},
+			},
+			rayClusterName:  "nonexistent-raycluster",
+			registerRayType: true,
+			wantAnnotation: map[string]string{
+				RayClusterGenerationAnnotation:         "",
+				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+			},
+		},
+		"other get error returns error": {
+			annotations: map[string]string{
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+			},
+			podSets: []kueue.PodSet{
+				{Name: "head", Count: 1},
+			},
+			rayClusterName: "test-raycluster",
+			wantErr:        true,
 		},
 	}
 
@@ -1136,15 +1180,20 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 
 			scheme := runtime.NewScheme()
-			_ = rayv1.AddToScheme(scheme)
 			_ = corev1.AddToScheme(scheme)
 
-			rayCluster := testingrayutil.MakeCluster("test-raycluster", "default").Obj()
+			if tc.registerRayType {
+				_ = rayv1.AddToScheme(scheme)
+			}
 
-			c := fake.NewClientBuilder().
-				WithScheme(scheme).
-				WithObjects(rayCluster).
-				Build()
+			builder := fake.NewClientBuilder().WithScheme(scheme)
+
+			if tc.createRayCluster {
+				rayCluster := testingrayutil.MakeCluster("test-raycluster", "default").Obj()
+				builder = builder.WithObjects(rayCluster)
+			}
+
+			c := builder.Build()
 
 			obj := &metav1.ObjectMeta{
 				Name:        "test-object",
@@ -1154,7 +1203,13 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			// Use a corev1.ConfigMap as a simple client.Object wrapper
 			cm := &corev1.ConfigMap{ObjectMeta: *obj}
 
-			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, cm, tc.podSets, "test-raycluster")
+			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, cm, tc.podSets, tc.rayClusterName)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error but got nil")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("GetWorkloadslicingCustomAnnotations() unexpected error: %v", err)
 			}
