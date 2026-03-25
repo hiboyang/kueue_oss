@@ -423,7 +423,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 		})
 	})
 
-	ginkgo.It("Should run a rayjob with multi scale-up", func() {
+	ginkgo.It("Should run a rayjob with multi scale-up steps", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script that triggers multiple scale-up phases
