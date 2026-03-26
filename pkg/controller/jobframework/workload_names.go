@@ -25,7 +25,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -67,11 +66,7 @@ func GetWorkloadNameForOwnerWithGVK(ownerName string, ownerUID types.UID, ownerG
 }
 
 func GenerateWorkloadNamePrefix(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind) string {
-	prefixedName := strings.ToLower(ownerGVK.Kind) + "-" + ownerName
-	if len(prefixedName) > maxPrefixLength {
-		prefixedName = prefixedName[:maxPrefixLength]
-	}
-	return prefixedName
+	return truncate(strings.ToLower(ownerGVK.Kind)+"-"+ownerName, maxPrefixLength())
 }
 
 func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, generation int64) string {
@@ -81,10 +76,10 @@ func GetWorkloadNameForOwnerWithGVKAndGeneration(ownerName string, ownerUID type
 
 func GenerateWorkloadNameWithExtra(ownerName string, ownerUID types.UID, ownerGVK schema.GroupVersionKind, extra string) string {
 	prefixedName := GenerateWorkloadNamePrefix(ownerName, ownerUID, ownerGVK)
-	fmt.Sprintf(
+	return fmt.Sprintf(
 		"%s-%s",
-		truncate(prefixedName, maxPrefixLength()),
-		getHash(ownerName, ownerUID, ownerGVK, generation)[:hashLength],
+		prefixedName,
+		getHash(ownerName, ownerUID, ownerGVK, extra)[:hashLength],
 	)
 }
 
