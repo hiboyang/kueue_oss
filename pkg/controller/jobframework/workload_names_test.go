@@ -150,30 +150,44 @@ func TestGenerateWorkloadNameWithExtra(t *testing.T) {
 		})
 	}
 
-	// Verify that different extra values produce different names.
-	t.Run("different extra values produce different names", func(t *testing.T) {
-		name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "1")
-		name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "2")
-		if name1 == name2 {
-			t.Errorf("expected different names for different extra values, got %q for both", name1)
-		}
-	})
+	// Verify name equality/inequality for different extra values.
+	equalityCases := map[string]struct {
+		extra1    string
+		extra2    string
+		wantEqual bool
+	}{
+		"different extra values produce different names": {
+			extra1:    "1",
+			extra2:    "2",
+			wantEqual: false,
+		},
+		"different resourceVersion values produce different names": {
+			extra1:    "100",
+			extra2:    "200",
+			wantEqual: false,
+		},
+		"same extra produces same name": {
+			extra1:    "100",
+			extra2:    "100",
+			wantEqual: true,
+		},
+	}
 
-	t.Run("different resourceVersion values produce different names", func(t *testing.T) {
-		name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "100")
-		name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "200")
-		if name1 == name2 {
-			t.Errorf("expected different names for different extra values, got %q for both", name1)
-		}
-	})
-
-	t.Run("same extra produces same name", func(t *testing.T) {
-		name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "100")
-		name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "100")
-		if diff := cmp.Diff(name1, name2); diff != "" {
-			t.Errorf("expected same name for same extra value (-want,+got):\n%s", diff)
-		}
-	})
+	for name, tc := range equalityCases {
+		t.Run(name, func(t *testing.T) {
+			name1 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, tc.extra1)
+			name2 := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, tc.extra2)
+			if tc.wantEqual {
+				if diff := cmp.Diff(name1, name2); diff != "" {
+					t.Errorf("expected same names (-want,+got):\n%s", diff)
+				}
+			} else {
+				if name1 == name2 {
+					t.Errorf("expected different names for different extra values, got %q for both", name1)
+				}
+			}
+		})
+	}
 
 	t.Run("same prefix as GetWorkloadNameForOwnerWithGVK", func(t *testing.T) {
 		elasticName := GenerateWorkloadNameWithExtra("my-job", "uid-123", gvk, "1")
@@ -195,21 +209,50 @@ func TestGenerateWorkloadNameWithExtra(t *testing.T) {
 func TestGenerateWorkloadNameWithGeneration(t *testing.T) {
 	gvk := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
 
-	t.Run("different generations produce different names", func(t *testing.T) {
-		name1 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 1)
-		name2 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 2)
-		if name1 == name2 {
-			t.Errorf("expected different names for different generations, got %q for both", name1)
-		}
-	})
+	cases := map[string]struct {
+		ownerName1  string
+		uid1        types.UID
+		generation1 int64
+		ownerName2  string
+		uid2        types.UID
+		generation2 int64
+		wantEqual   bool
+	}{
+		"different generations produce different names": {
+			ownerName1:  "my-job",
+			uid1:        "uid-123",
+			generation1: 1,
+			ownerName2:  "my-job",
+			uid2:        "uid-123",
+			generation2: 2,
+			wantEqual:   false,
+		},
+		"same generation produces same name": {
+			ownerName1:  "my-job",
+			uid1:        "uid-123",
+			generation1: 1,
+			ownerName2:  "my-job",
+			uid2:        "uid-123",
+			generation2: 1,
+			wantEqual:   true,
+		},
+	}
 
-	t.Run("same generation produces same name", func(t *testing.T) {
-		name1 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 1)
-		name2 := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 1)
-		if diff := cmp.Diff(name1, name2); diff != "" {
-			t.Errorf("expected same name for same generation (-want,+got):\n%s", diff)
-		}
-	})
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			name1 := GetWorkloadNameForOwnerWithGVKAndGeneration(tc.ownerName1, tc.uid1, gvk, tc.generation1)
+			name2 := GetWorkloadNameForOwnerWithGVKAndGeneration(tc.ownerName2, tc.uid2, gvk, tc.generation2)
+			if tc.wantEqual {
+				if diff := cmp.Diff(name1, name2); diff != "" {
+					t.Errorf("expected same names (-want,+got):\n%s", diff)
+				}
+			} else {
+				if name1 == name2 {
+					t.Errorf("expected different names, got %q for both", name1)
+				}
+			}
+		})
+	}
 
 	t.Run("consistent with GenerateWorkloadNameWithExtra using string generation", func(t *testing.T) {
 		nameFromGeneration := GetWorkloadNameForOwnerWithGVKAndGeneration("my-job", "uid-123", gvk, 42)

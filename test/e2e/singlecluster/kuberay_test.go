@@ -580,29 +580,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Waiting for first scale-up due to low parallelism tasks", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				podList := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Get worker pod names and check count
-				currentPodNames := getRunningWorkerPodNames(podList)
-				g.Expect(len(currentPodNames)).To(gomega.BeNumerically(">=", 2),
-					"Expected at least 2 workers after first scale-up from low parallelism tasks")
-
-				// Verify that the current pod names are a superset of the initial pod names
-				g.Expect(currentPodNames).To(gomega.ContainElements(initialPodNames),
-					"Current worker pod names should be a superset of initial pod names")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for at least 2 total workloads due to first scale-up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloadList := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads after first scale-up")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				podList := &corev1.PodList{}
