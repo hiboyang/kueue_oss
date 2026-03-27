@@ -70,6 +70,11 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+var _ = ginkgo.ReportAfterSuite("Generate JUnit Report", func(report ginkgo.Report) {
+	err := util.ConfigureSuiteReporting(report)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+})
+
 type managerSetupOpts struct {
 	runScheduler bool
 	roleTracker  *roletracker.RoleTracker
@@ -116,6 +121,8 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
+		lqMetrics := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+
 		var customLabels *metrics.CustomLabels
 		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
 			customLabels = metrics.NewCustomLabels(controllersCfg.Metrics.CustomLabels)
@@ -124,10 +131,12 @@ func managerAndControllerSetup(controllersCfg *config.Configuration, options ...
 		cacheOpts := []schdcache.Option{
 			schdcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),
 			schdcache.WithRoleTracker(opts.roleTracker),
+			schdcache.WithLocalQueueMetrics(lqMetrics),
 			schdcache.WithCustomLabels(customLabels),
 		}
 		queueOpts := []qcache.Option{
 			qcache.WithRoleTracker(opts.roleTracker),
+			qcache.WithLocalQueueMetrics(lqMetrics),
 			qcache.WithCustomLabels(customLabels),
 		}
 

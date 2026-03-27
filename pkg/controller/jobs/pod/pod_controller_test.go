@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -135,9 +136,9 @@ func TestRun(t *testing.T) {
 
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		pod                           *Pod
-		wantPodSets                   func(pod *Pod) []kueue.PodSet
-		enableTopologyAwareScheduling bool
+		pod          *Pod
+		wantPodSets  func(pod *Pod) []kueue.PodSet
+		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").Obj()),
@@ -148,7 +149,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with required topology annotation": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -164,7 +165,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"with required topology preferred": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -180,7 +181,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: true,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		"without required topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -194,7 +195,7 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"without preferred topology annotation if TAS is disabled": {
 			pod: FromObject(testingpod.MakePod("pod", "ns").
@@ -208,12 +209,13 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 				}
 			},
-			enableTopologyAwareScheduling: false,
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.enableTopologyAwareScheduling)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotPodSets, err := tc.pod.PodSets(ctx)
 			if err != nil {
@@ -6058,8 +6060,9 @@ func TestPod_IsActive(t *testing.T) {
 		list corev1.PodList
 	}
 	tests := map[string]struct {
-		fields fields
-		want   bool
+		fields                 fields
+		enableFastQuotaRelease bool
+		want                   bool
 	}{
 		"RegularPod": {
 			want: false,
@@ -6121,9 +6124,94 @@ func TestPod_IsActive(t *testing.T) {
 			},
 			want: true,
 		},
+		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-within-grace",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
+			enableFastQuotaRelease: false,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-within-grace",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-pod",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{Name: "running-pod"},
+							Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
+		"FastQuotaRelease_AllTerminating": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-pod-1",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(90)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+						{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:                       "terminating-pod-2",
+								DeletionTimestamp:          ptr.To(metav1.NewTime(now.Add(-5 * time.Second))),
+								DeletionGracePeriodSeconds: ptr.To(int64(300)),
+							},
+							Status: corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableFastQuotaRelease)
 			p := &Pod{
 				pod:   tt.fields.pod,
 				list:  tt.fields.list,

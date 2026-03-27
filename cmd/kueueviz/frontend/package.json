@@ -10,6 +10,7 @@
     "build": "vite build",
     "dev": "vite --no-open",
     "preview": "vite preview",
+    "test": "vitest run",
     "check-unused": "depcheck",
     "serve": "serve -s build"
   },
@@ -22,13 +23,14 @@
     "react": "^19.2.4",
     "react-ace": "^14.0.1",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.13.1",
+    "react-router-dom": "^7.13.2",
     "react-toastify": "^11.0.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.1.4",
     "depcheck": "^1.4.7",
     "vite": "^7.3.1",
+    "vitest": "^4.0.18",
     "serve": "^14.2.6"
   },
   "browserslist": {

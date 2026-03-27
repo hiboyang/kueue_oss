@@ -125,6 +125,7 @@ var _ jobframework.GenericJob = (*RayJob)(nil)
 var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 var _ jobframework.JobWithSkip = (*RayJob)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
+var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 
 func (j *RayJob) Object() client.Object {
 	return (*rayv1.RayJob)(j)
@@ -248,7 +249,11 @@ func (j *RayJob) PodsReady(ctx context.Context) bool {
 }
 
 func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
-	return jobframework.GetWorkloadslicingCustomAnnotations(j.Object(), podSets)
+	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), podSets, j.Status.RayClusterName)
+}
+
+func (j *RayJob) GetWorkloadNameExtraPart() string {
+	return raycluster.GetWorkloadNameExtraPart(j.GetObjectMeta())
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
