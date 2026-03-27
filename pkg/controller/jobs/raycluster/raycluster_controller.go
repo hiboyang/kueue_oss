@@ -183,7 +183,7 @@ func (j *RayCluster) PodsReady(ctx context.Context) bool {
 }
 
 func (j *RayCluster) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
-	return jobframework.GetWorkloadslicingCustomAnnotations(j.Object(), podSets)
+	return GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), podSets, j.Name)
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
