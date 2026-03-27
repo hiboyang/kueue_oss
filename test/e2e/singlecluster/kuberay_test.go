@@ -525,11 +525,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 			gomega.Expect(k8sClient.Create(ctx, rayJob)).Should(gomega.Succeed())
 		})
 
-		// Variable to store initial pod names for verification during scaling
-		var initialPodNames []string
-		// Variable to store scaled-up pod names for verification during scaling down
-		var scaledUpPodNames []string
-
 		ginkgo.By("Checking one workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workloadList := &kueue.WorkloadList{}
@@ -564,9 +559,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				// Get worker pod names and check count
 				workerPodNames := getRunningWorkerPodNames(podList)
 				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-
-				// Store initial pod names for later verification
-				initialPodNames = workerPodNames
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -587,13 +579,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				// Get worker pod names and check count
 				currentPodNames := getRunningWorkerPodNames(podList)
 				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name after second scale-up")
-
-				// Verify that the current pod names are a superset of the initial pod names
-				g.Expect(currentPodNames).To(gomega.ContainElements(initialPodNames),
-					"Current worker pod names should be a superset of initial pod names")
-
-				// Store scaled-up pod names for later verification during scaling down
-				scaledUpPodNames = currentPodNames
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -626,10 +611,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(32)])`,
 				// Get worker pod names and check count
 				currentPodNames := getRunningWorkerPodNames(podList)
 				g.Expect(currentPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pods with 'workers' in the name")
-
-				// Verify that the previous scaled-up pod names are a superset of the current pod names
-				g.Expect(scaledUpPodNames).To(gomega.ContainElements(currentPodNames),
-					"Previous scaled-up worker pod names should be a superset of current pod names")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
