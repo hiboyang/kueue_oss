@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
@@ -62,30 +63,52 @@ func (h *PodHandler) Delete(_ context.Context, e event.DeleteEvent, q workqueue.
 func (h *PodHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
+// ShouldTriggerReconcileForRayClusterOwner checks whether a pod should trigger
+// a reconcile for its RayCluster owner. It returns the RayCluster name if all
+// conditions are met (feature gate enabled, required annotations/labels present,
+// elastic-job scheduling gate set, and controller owner is a RayCluster), or nil otherwise.
+func ShouldTriggerReconcileForRayClusterOwner(pod *corev1.Pod) *string {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return nil
+	}
+
+	// Only process pods managed by Kueue.
+	if pod.Annotations[kueue.WorkloadAnnotation] == "" {
+		return nil
+	}
+
+	// Only process pods with workload slicing.
+	if pod.Annotations[kueue.WorkloadSliceNameAnnotation] == "" {
+		return nil
+	}
+
+	// Only process pods that have the elastic-job scheduling gate.
+	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) {
+		return nil
+	}
+
+	// Only process pods belonging to a RayCluster.
+	if pod.Labels[rayutils.RayClusterLabelKey] == "" {
+		return nil
+	}
+
+	// Find the RayCluster that owns this pod.
+	controllerRef := metav1.GetControllerOf(pod)
+	if controllerRef == nil || controllerRef.Kind != "RayCluster" {
+		return nil
+	}
+
+	return &controllerRef.Name
+}
+
 func (h *PodHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	pod, ok := obj.(*corev1.Pod)
 	if !ok {
 		return
 	}
 
-	// Only process pods managed by Kueue.
-	if pod.Annotations[kueue.WorkloadAnnotation] == "" {
-		return
-	}
-
-	// Only process pods with workload slicing.
-	if pod.Annotations[kueue.WorkloadSliceNameAnnotation] == "" {
-		return
-	}
-
-	// Only process pods belonging to a RayCluster.
-	if pod.Labels[rayutils.RayClusterLabelKey] == "" {
-		return
-	}
-
-	// Find the RayCluster that owns this pod.
-	controllerRef := metav1.GetControllerOf(pod)
-	if controllerRef == nil || controllerRef.Kind != "RayCluster" {
+	clusterName := ShouldTriggerReconcileForRayClusterOwner(pod)
+	if clusterName == nil {
 		return
 	}
 
@@ -93,19 +116,14 @@ func (h *PodHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 	var cluster rayv1.RayCluster
 	if err := h.Client.Get(context.Background(), types.NamespacedName{
 		Namespace: pod.Namespace,
-		Name:      controllerRef.Name,
+		Name:      *clusterName,
 	}, &cluster); err != nil {
-		ctrl.Log.V(3).Error(err, "Failed to get RayCluster for pod", "pod", pod.Name, "raycluster", controllerRef.Name)
+		ctrl.Log.V(3).Error(err, "Failed to get RayCluster for pod", "pod", pod.Name, "raycluster", *clusterName)
 		return
 	}
 
 	parentRef := metav1.GetControllerOf(&cluster)
 	if parentRef == nil || parentRef.Kind != h.ParentKind {
-		return
-	}
-
-	// Only process pods that have the elastic-job scheduling gate.
-	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) {
 		return
 	}
 
