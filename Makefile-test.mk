@@ -60,7 +60,12 @@ KIND_CLUSTER_NAME ?= kind
 # Number of processes to use during e2e tests.
 E2E_NPROCS ?= 1
 
-GINKGO_ARGS += $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E_NPROCS))
+# Inject the number of procs into GINKGO_ARGS
+GINKGO_PROC_ARG := $(if $(filter-out 1,$(E2E_NPROCS)),-procs=$(E2E_NPROCS))
+# Check empty string to avoid adding a trailing space
+ifneq ($(GINKGO_PROC_ARG),)
+    GINKGO_ARGS += $(GINKGO_PROC_ARG)
+endif
 
 # For restricting to a specific directory
 GO_TEST_TARGET ?= .
@@ -96,6 +101,10 @@ test: gotestsum ## Run tests.
 
 .PHONY: test-integration
 test-integration: compile-crd-manifests envtest ginkgo dep-crds kueuectl ginkgo-top ## Run integration tests for all singlecluster suites.
+	$(MAKE) test-integration-run
+
+.PHONY: test-integration-run
+test-integration-run:
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
 	PROJECT_DIR=$(PROJECT_DIR)/ \
 	KUEUE_BIN=$(BIN_DIR) \
@@ -157,6 +166,13 @@ test-tas-e2e: setup-e2e-env kind-ray-project-mini-image-build run-test-tas-e2e-$
 test-tas-e2e-helm: E2E_USE_HELM=true
 test-tas-e2e-helm: test-tas-e2e
 
+## Label Taxonomy:
+##   Features: admissionfairsharing, certs, failurerecoverypolicy, managejobswithoutqueuename, localqueuemetrics, objectretentionpolicies, podintegrationautoenablement, reconcile, spark, visibility, waitforpodsready
+##
+## Examples:
+##   Run only Admission Fair Sharing tests: GINKGO_ARGS="--label-filter=feature:admissionfairsharing" make test-e2e-customconfigs
+##   Run only Certs tests: GINKGO_ARGS="--label-filter=feature:certs" make test-e2e-customconfigs
+##   Run only Failure Recovery Policy tests: GINKGO_ARGS="--label-filter=feature:failurerecoverypolicy" make test-e2e-customconfigs
 .PHONY: test-e2e-customconfigs
 test-e2e-customconfigs: setup-e2e-env run-test-e2e-customconfigs-$(E2E_KIND_VERSION:kindest/node:v%=%)
 

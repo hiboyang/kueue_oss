@@ -82,14 +82,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			managersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					RuntimePatches([]kftrainerapi.RuntimePatch{
-						{
-							Manager: runtimePatchManagerName,
-							TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-								Template: &kftrainerapi.JobSetTemplatePatch{
-									Spec: &kftrainerapi.JobSetSpecPatch{},
-								},
-							},
-						},
+						testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
 					}).
 					Obj(),
 			},
@@ -100,14 +93,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					RuntimePatches([]kftrainerapi.RuntimePatch{
-						{
-							Manager: runtimePatchManagerName,
-							TrainingRuntimeSpec: &kftrainerapi.TrainingRuntimeSpecPatch{
-								Template: &kftrainerapi.JobSetTemplatePatch{
-									Spec: &kftrainerapi.JobSetSpecPatch{},
-								},
-							},
-						},
+						testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
 					}).
 					Obj(),
 			},
@@ -127,11 +113,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),
@@ -145,11 +131,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 			wantManagersTrainJobs: []kftrainerapi.TrainJob{
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),
@@ -161,11 +147,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),
@@ -185,11 +171,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),
@@ -204,11 +190,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*baseTrainJobManagedByKueueBuilder.Clone().
 					Suspend(true).
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),
@@ -221,11 +207,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					Suspend(true).
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),
@@ -239,11 +225,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Label(constants.PrebuiltWorkloadLabel, "wl1").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					JobsStatus(
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-1").
+						testingtrainjob.MakeJobStatus("replicated-job-1").
 							Ready(1).
 							Succeeded(1).
 							Obj(),
-						testingtrainjob.MakeJobStatusWrapper("replicated-job-2").
+						testingtrainjob.MakeJobStatus("replicated-job-2").
 							Ready(3).
 							Succeeded(0).
 							Obj(),

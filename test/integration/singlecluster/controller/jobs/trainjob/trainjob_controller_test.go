@@ -274,7 +274,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
 					trainJob.Status.JobsStatus = []kftrainerapi.JobStatus{
-						testingtrainjob.MakeJobStatusWrapper("node").Active(1).Obj(),
+						testingtrainjob.MakeJobStatus("node").Active(1).Obj(),
 					}
 					g.Expect(k8sClient.Status().Update(ctx, trainJob)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -456,14 +456,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, createdTrainJob)).Should(gomega.Succeed())
 			g.Expect(*createdTrainJob.Spec.Suspend).Should(gomega.BeFalse())
-			// Find the Kueue RuntimePatch and verify replicated job patches
-			var kueuePatch *kftrainerapi.RuntimePatch
-			for i := range createdTrainJob.Spec.RuntimePatches {
-				if createdTrainJob.Spec.RuntimePatches[i].Manager == "kueue.x-k8s.io/manager" {
-					kueuePatch = &createdTrainJob.Spec.RuntimePatches[i]
-					break
-				}
-			}
+			kueuePatch := testingtrainjob.KueueRuntimePatch(createdTrainJob)
 			g.Expect(kueuePatch).ShouldNot(gomega.BeNil())
 			rJobs := kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs
 			g.Expect(rJobs).To(gomega.HaveLen(2))
@@ -564,8 +557,8 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 			createdTrainJob1 := &kftrainerapi.TrainJob{}
 			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob1.Name, Namespace: ns.Name}, createdTrainJob1)).Should(gomega.Succeed())
 			createdTrainJob1.Status.JobsStatus = []kftrainerapi.JobStatus{
-				testingtrainjob.MakeJobStatusWrapper("node-1").Succeeded(2).Obj(),
-				testingtrainjob.MakeJobStatusWrapper("node-2").Succeeded(1).Obj(),
+				testingtrainjob.MakeJobStatus("node-1").Succeeded(2).Obj(),
+				testingtrainjob.MakeJobStatus("node-2").Succeeded(1).Obj(),
 			}
 			gomega.Expect(k8sClient.Status().Update(ctx, createdTrainJob1)).Should(gomega.Succeed())
 
