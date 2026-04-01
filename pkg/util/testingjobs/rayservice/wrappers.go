@@ -255,6 +255,19 @@ func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 	return j
 }
 
+// EnableInTreeAutoscaling enables in-tree autoscaling on the RayService.
+func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
+	enable := true
+	aggressive := rayv1.UpscalingMode("Aggressive")
+	idleTimeoutSeconds := int32(5)
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = &enable
+	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		UpscalingMode:      &aggressive,
+		IdleTimeoutSeconds: &idleTimeoutSeconds,
+	}
+	return j
+}
+
 // StatusConditions adds a condition to the RayService status.
 func (j *ServiceWrapper) StatusConditions(c metav1.Condition) *ServiceWrapper {
 	j.Status.Conditions = append(j.Status.Conditions, c)
