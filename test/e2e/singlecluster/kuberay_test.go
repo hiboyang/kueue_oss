@@ -973,9 +973,9 @@ app = HelloWorld.bind()`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayService := &rayv1.RayService{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Annotations).To(gomega.HaveKey(jobframework.PodsetReplicaSizesAnnotation),
+				g.Expect(createdRayService.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
 					"Expected podset-replica-sizes annotation on RayService")
-				count, err := parsePodSetReplicaCount(createdRayService.Annotations[jobframework.PodsetReplicaSizesAnnotation], "workers-group-0")
+				count, err := parsePodSetReplicaCount(createdRayService.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(count).To(gomega.Equal(int32(1)),
 					"Expected workers-group-0 count = 1")
@@ -1036,7 +1036,7 @@ app = HelloWorld.bind()`,
 			// sustained resource demand. With target_ongoing_requests=1 and max_replicas=5,
 			// Ray Serve will scale up to 5 replicas. Each replica needs 1 logical CPU,
 			// and each worker has 1 logical CPU, so 5 workers are required.
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				go func() {
 					//nolint:gosec // Non-crypto HTTP call for e2e test
 					resp, err := http.Get(fmt.Sprintf("http://localhost:%d/?sleep=30", localPort))
@@ -1065,9 +1065,9 @@ app = HelloWorld.bind()`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayService := &rayv1.RayService{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Annotations).To(gomega.HaveKey(jobframework.PodsetReplicaSizesAnnotation),
+				g.Expect(createdRayService.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
 					"Expected podset-replica-sizes annotation on RayService after scaling up")
-				count, err := parsePodSetReplicaCount(createdRayService.Annotations[jobframework.PodsetReplicaSizesAnnotation], "workers-group-0")
+				count, err := parsePodSetReplicaCount(createdRayService.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(count).To(gomega.Equal(int32(5)),
 					"Expected workers-group-0 count = 5 after scaling up")
