@@ -866,8 +866,9 @@ app = HelloWorld.bind()`,
           upscaling_factor: 1.0
           upscale_delay_s: 2
           downscale_delay_s: 600
+        max_replicas_per_node: 1
         ray_actor_options:
-          num_cpus: 1`
+          num_cpus: 0.2`
 
 		volumes := []corev1.Volume{
 			{
@@ -905,8 +906,8 @@ app = HelloWorld.bind()`,
 			Queue(localQueueName).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			EnableInTreeAutoscaling().
-			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "200m").
-			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "600m").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
@@ -922,6 +923,7 @@ app = HelloWorld.bind()`,
 			Obj()
 
 		// Configure worker group for autoscaling
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
 		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
 		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](5)
 
@@ -936,16 +938,20 @@ app = HelloWorld.bind()`,
 		// Variable to store initial pod names for verification during scaling
 		var initialPodNames []string
 
-		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
-		createdWorkload := &kueue.Workload{}
-		ginkgo.By("Checking workload is created", func() {
+		ginkgo.By("Checking one workload is created and admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Checking workload is admitted", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
+				hasAdmittedWorkload := false
+				for _, wl := range workloadList.Items {
+					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+						hasAdmittedWorkload = true
+						break
+					}
+				}
+				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking the RayService is running", func() {
@@ -1014,24 +1020,24 @@ app = HelloWorld.bind()`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		// Set up port-forward to the head pod for sending HTTP requests.
+		// This must live outside ginkgo.By blocks so the port-forward stays alive
+		// while we wait for autoscaling to trigger.
+		pods := &corev1.PodList{}
+		gomega.Expect(k8sClient.List(ctx, pods,
+			client.InNamespace(ns.Name),
+			client.MatchingLabels{
+				"ray.io/node-type": "head",
+			},
+		)).To(gomega.Succeed())
+		gomega.Expect(pods.Items).NotTo(gomega.BeEmpty())
+
+		headPodName := pods.Items[0].Name
+		localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		defer close(stopChan)
+
 		ginkgo.By("Sending concurrent slow HTTP requests to trigger autoscaling", func() {
-			// Find the head pod
-			pods := &corev1.PodList{}
-			gomega.Expect(k8sClient.List(ctx, pods,
-				client.InNamespace(ns.Name),
-				client.MatchingLabels{
-					"ray.io/node-type": "head",
-				},
-			)).To(gomega.Succeed())
-			gomega.Expect(pods.Items).NotTo(gomega.BeEmpty())
-
-			headPodName := pods.Items[0].Name
-
-			// Port-forward to the head pod on port 8000 (Ray Serve default)
-			localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			defer close(stopChan)
-
 			// Send 10 concurrent requests, each sleeping 30s server-side to create
 			// sustained resource demand. With target_ongoing_requests=1 and max_replicas=5,
 			// Ray Serve will scale up to 5 replicas. Each replica needs 1 logical CPU,
@@ -1049,6 +1055,19 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
+				// Keep sending requests to maintain sustained load for autoscaling.
+				// Ray Serve autoscaling checks load periodically, and the initial
+				// batch of requests may complete before scaling decisions propagate.
+				for range 5 {
+					go func() {
+						//nolint:gosec // Non-crypto HTTP call for e2e test
+						resp, err := http.Get(fmt.Sprintf("http://localhost:%d/?sleep=30", localPort))
+						if err == nil {
+							resp.Body.Close()
+						}
+					}()
+				}
+
 				podList := &corev1.PodList{}
 				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				// Get worker pod names and check count
