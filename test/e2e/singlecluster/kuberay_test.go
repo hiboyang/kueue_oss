@@ -818,6 +818,13 @@ app = HelloWorld.bind()`,
     route_prefix: /
     deployments:
       - name: HelloWorld
+        autoscaling_config:
+          min_replicas: 1
+          max_replicas: 5
+          target_ongoing_requests: 1
+          upscaling_factor: 1.0
+          upscale_delay_s: 2
+          downscale_delay_s: 600
         num_replicas: 1
         max_replicas_per_node: 1
         ray_actor_options:
@@ -863,6 +870,8 @@ app = HelloWorld.bind()`,
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
 			WithServeConfigV2(serveConfigV2).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			EnableInTreeAutoscaling().
 			Env(rayv1.HeadNode, env).
 			Env(rayv1.WorkerNode, env).
 			Volumes(rayv1.HeadNode, volumes).
@@ -884,16 +893,20 @@ app = HelloWorld.bind()`,
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
-		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
-		createdWorkload := &kueue.Workload{}
-		ginkgo.By("Checking workload is created", func() {
+		ginkgo.By("Checking one workload is created and admitted", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Checking workload is admitted", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+				workloadList := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
+				hasAdmittedWorkload := false
+				for _, wl := range workloadList.Items {
+					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
+						hasAdmittedWorkload = true
+						break
+					}
+				}
+				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking the RayService is running", func() {
@@ -905,26 +918,29 @@ app = HelloWorld.bind()`,
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		// Set up port-forwarding to the head pod for sending HTTP requests
+		var localPort int
+		var stopChan chan struct{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			pods := &corev1.PodList{}
+			g.Expect(k8sClient.List(ctx, pods,
+				client.InNamespace(ns.Name),
+				client.MatchingLabels{
+					"ray.io/node-type": "head",
+				},
+			)).To(gomega.Succeed())
+			g.Expect(pods.Items).NotTo(gomega.BeEmpty())
+
+			headPodName := pods.Items[0].Name
+
+			var err error
+			localPort, stopChan, err = util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		defer close(stopChan)
+
 		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				// Find the head pod in this namespace
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods,
-					client.InNamespace(ns.Name),
-					client.MatchingLabels{
-						"ray.io/node-type": "head",
-					},
-				)).To(gomega.Succeed())
-				g.Expect(pods.Items).NotTo(gomega.BeEmpty())
-
-				headPodName := pods.Items[0].Name
-
-				// Port-forward to the head pod on port 8000 (Ray Serve default)
-				localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer close(stopChan)
-
-				// Send HTTP GET to the Ray Serve endpoint
 				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				defer resp.Body.Close()
