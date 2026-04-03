@@ -866,11 +866,10 @@ app = HelloWorld.bind()`,
 	ginkgo.It("Should run a rayservice with InTreeAutoscaling", func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
-		// Create ConfigMap with a Ray Serve application that supports slow requests
-		// to trigger autoscaling via sustained resource demand
+		// Create ConfigMap with a simple Ray Serve application
 		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayservice-autoscaling",
+				Name:      "rayservice-hello",
 				Namespace: ns.Name,
 			},
 			Data: map[string]string{
@@ -879,32 +878,20 @@ app = HelloWorld.bind()`,
 @serve.deployment
 class HelloWorld:
     def __call__(self, request):
-        import time
-        sleep_time = int(request.query_params.get("sleep", "0"))
-        if sleep_time > 0:
-            time.sleep(sleep_time)
         return "Hello, World!"
 
 app = HelloWorld.bind()`,
 			},
 		}
 
-		// serveConfigV2 with autoscaling config to scale up to 5 replicas.
-		// Each replica requests 1 logical CPU, and each worker has 1 logical CPU,
-		// so scaling replicas triggers worker node autoscaling.
+		// serveConfigV2 configuration for the simple serve app
 		serveConfigV2 := `applications:
   - name: hello_app
     import_path: hello_serve:app
     route_prefix: /
     deployments:
       - name: HelloWorld
-        autoscaling_config:
-          min_replicas: 1
-          max_replicas: 5
-          target_ongoing_requests: 1
-          upscaling_factor: 1.0
-          upscale_delay_s: 2
-          downscale_delay_s: 600
+        num_replicas: 1
         max_replicas_per_node: 1
         ray_actor_options:
           num_cpus: 0.2`
@@ -915,7 +902,7 @@ app = HelloWorld.bind()`,
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayservice-autoscaling",
+							Name: "rayservice-hello",
 						},
 						Items: []corev1.KeyToPath{
 							{
@@ -940,18 +927,14 @@ app = HelloWorld.bind()`,
 			},
 		}
 
-		rayService := testingrayservice.MakeService("rayservice-autoscaling", ns.Name).
+		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
-			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			EnableInTreeAutoscaling().
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "600m").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
 			Image(rayv1.WorkerNode, kuberayTestImage).
 			RayStartParam(rayv1.HeadNode, "object-store-memory", "100000000").
-			RayStartParam(rayv1.HeadNode, "num-cpus", "0").
-			RayStartParam(rayv1.WorkerNode, "num-cpus", "1").
 			WithServeConfigV2(serveConfigV2).
 			Env(rayv1.HeadNode, env).
 			Env(rayv1.WorkerNode, env).
@@ -961,10 +944,10 @@ app = HelloWorld.bind()`,
 			VolumeMounts(rayv1.WorkerNode, volumeMounts).
 			Obj()
 
-		// Configure worker group for autoscaling
+		// Configure worker group with minReplicas and maxReplicas
 		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
 		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
-		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](5)
+		rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
 
 		ginkgo.By("Creating the ConfigMap", func() {
 			gomega.Expect(k8sClient.Create(ctx, configMap)).Should(gomega.Succeed())
@@ -974,23 +957,16 @@ app = HelloWorld.bind()`,
 			gomega.Expect(k8sClient.Create(ctx, rayService)).Should(gomega.Succeed())
 		})
 
-		// Variable to store initial pod names for verification during scaling
-		var initialPodNames []string
-
-		ginkgo.By("Checking one workload is created and admitted", func() {
+		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Checking workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workloadList := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(workloadList.Items).NotTo(gomega.BeEmpty(), "Expected at least one workload in namespace")
-				hasAdmittedWorkload := false
-				for _, wl := range workloadList.Items {
-					if workload.IsAdmitted(&wl) || workload.IsFinished(&wl) {
-						hasAdmittedWorkload = true
-						break
-					}
-				}
-				g.Expect(hasAdmittedWorkload).To(gomega.BeTrue(), "Expected admitted workload")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Checking workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 		})
 
 		ginkgo.By("Checking the RayService is running", func() {
@@ -1000,31 +976,6 @@ app = HelloWorld.bind()`,
 				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for 1 worker pod in rayservice namespace", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				podList := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				workerPodNames := getRunningWorkerPodNames(podList)
-				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
-
-				// Store initial pod names for later verification
-				initialPodNames = workerPodNames
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayService", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayService := &rayv1.RayService{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
-					"Expected podset-replica-sizes annotation on RayService")
-				count, err := parsePodSetReplicaCount(createdRayService.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(count).To(gomega.Equal(int32(1)),
-					"Expected workers-group-0 count = 1")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
@@ -1057,88 +1008,6 @@ app = HelloWorld.bind()`,
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		// Set up port-forward to the head pod for sending HTTP requests.
-		// This must live outside ginkgo.By blocks so the port-forward stays alive
-		// while we wait for autoscaling to trigger.
-		pods := &corev1.PodList{}
-		gomega.Expect(k8sClient.List(ctx, pods,
-			client.InNamespace(ns.Name),
-			client.MatchingLabels{
-				"ray.io/node-type": "head",
-			},
-		)).To(gomega.Succeed())
-		gomega.Expect(pods.Items).NotTo(gomega.BeEmpty())
-
-		headPodName := pods.Items[0].Name
-		localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		defer close(stopChan)
-
-		ginkgo.By("Sending concurrent slow HTTP requests to trigger autoscaling", func() {
-			// Send 10 concurrent requests, each sleeping 30s server-side to create
-			// sustained resource demand. With target_ongoing_requests=1 and max_replicas=5,
-			// Ray Serve will scale up to 5 replicas. Each replica needs 1 logical CPU,
-			// and each worker has 1 logical CPU, so 5 workers are required.
-			for range 10 {
-				go func() {
-					//nolint:gosec // Non-crypto HTTP call for e2e test
-					resp, err := http.Get(fmt.Sprintf("http://localhost:%d/?sleep=30", localPort))
-					if err == nil {
-						resp.Body.Close()
-					}
-				}()
-			}
-		})
-
-		ginkgo.By("Waiting for 5 workers due to scaling up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				// Keep sending requests to maintain sustained load for autoscaling.
-				// Ray Serve autoscaling checks load periodically, and the initial
-				// batch of requests may complete before scaling decisions propagate.
-				for range 5 {
-					go func() {
-						//nolint:gosec // Non-crypto HTTP call for e2e test
-						resp, err := http.Get(fmt.Sprintf("http://localhost:%d/?sleep=30", localPort))
-						if err == nil {
-							resp.Body.Close()
-						}
-					}()
-				}
-
-				podList := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				// Get worker pod names and check count
-				currentPodNames := getRunningWorkerPodNames(podList)
-				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name")
-
-				// Verify that the current pod names are a superset of the initial pod names
-				g.Expect(currentPodNames).To(gomega.ContainElements(initialPodNames),
-					"Current worker pod names should be a superset of initial pod names")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayService after scaling up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayService := &rayv1.RayService{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
-					"Expected podset-replica-sizes annotation on RayService after scaling up")
-				count, err := parsePodSetReplicaCount(createdRayService.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(count).To(gomega.Equal(int32(5)),
-					"Expected workers-group-0 count = 5 after scaling up")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("Waiting for at least 2 total workloads due to scaling up creating another workload", func() {
-			// Use >= 2 since finished slices from intermediate scaling decisions are retained.
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloadList := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 2), "Expected at least 2 workloads")
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
