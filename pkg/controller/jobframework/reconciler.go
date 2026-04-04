@@ -660,7 +660,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if WorkloadSliceEnabled(job) {
 		// Start workload-slice schedule-gated pods (if any).
 		log.V(3).Info("Job running with admitted workload slice, start pods.")
-		return ctrl.Result{}, workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
+		podsFound, err := workloadslicing.StartWorkloadSlicePods(ctx, r.client, wl)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if podsFound == 0 {
+			// Pods may not exist yet (e.g., for RayService where KubeRay creates pods
+			// asynchronously via a child RayCluster). Requeue to retry ungating once
+			// pods are created, avoiding a deadlock where gated pods prevent status
+			// updates that would otherwise trigger reconciliation.
+			log.V(3).Info("No pods found to ungate, requeueing")
+			return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+		}
+		return ctrl.Result{}, nil
 	}
 
 	// workload is admitted and job is running, nothing to do.
