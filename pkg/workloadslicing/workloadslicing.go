@@ -284,8 +284,8 @@ func EnsureWorkloadSlices(
 //  2. For each pod, removes the ElasticJobSchedulingGate scheduling gate if present.
 //
 // Returns:
-// - An error if any of the operations fail; otherwise, nil.
-func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.Workload) error {
+// - The number of pods found and processed, and an error if any of the operations fail.
+func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.Workload) (int, error) {
 	log := ctrl.LoggerFrom(ctx)
 	list := &corev1.PodList{}
 	sliceName := SliceName(wl)
@@ -293,7 +293,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.W
 	// First try annotation-based lookup (supports JobSet and other workloads where pods
 	// are not immediate children of the job).
 	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
-		return fmt.Errorf("failed to list workload slice pods: %w", err)
+		return 0, fmt.Errorf("failed to list workload slice pods: %w", err)
 	}
 
 	// Fallback to owner reference lookup for backwards compatibility with pods created
@@ -303,7 +303,7 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.W
 		ownerUID := string(wl.OwnerReferences[0].UID)
 		log.V(4).Info("No pods found with annotation, falling back to owner reference lookup", "ownerUID", ownerUID)
 		if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: ownerUID}); err != nil {
-			return fmt.Errorf("failed to list job pods by owner reference: %w", err)
+			return 0, fmt.Errorf("failed to list job pods by owner reference: %w", err)
 		}
 	}
 
@@ -312,10 +312,10 @@ func StartWorkloadSlicePods(ctx context.Context, clnt client.Client, wl *kueue.W
 		if err := clientutil.Patch(ctx, clnt, &list.Items[i], func() (bool, error) {
 			return pod.Ungate(&list.Items[i], kueue.ElasticJobSchedulingGate), nil
 		}); err != nil {
-			return fmt.Errorf("failed to patch pod: %w", err)
+			return 0, fmt.Errorf("failed to patch pod: %w", err)
 		}
 	}
-	return nil
+	return len(list.Items), nil
 }
 
 // ReplacedWorkloadSlice returns the replacement workload slice for the given workload `wl`
