@@ -796,7 +796,7 @@ app = HelloWorld.bind()`,
 		// Create ConfigMap with a simple Ray Serve application
 		configMap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:      "rayservice-hello",
+				Name:      "rayservice-autoscale",
 				Namespace: ns.Name,
 			},
 			Data: map[string]string{
@@ -836,7 +836,7 @@ app = HelloWorld.bind()`,
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "rayservice-hello",
+							Name: "rayservice-autoscale",
 						},
 						Items: []corev1.KeyToPath{
 							{
@@ -861,7 +861,7 @@ app = HelloWorld.bind()`,
 			},
 		}
 
-		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
+		rayService := testingrayservice.MakeService("rayservice-autoscale", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "600m").
