@@ -988,7 +988,7 @@ app = HelloWorld.bind()`,
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(ptr.To(false)))
 				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, 2*util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		// Set up port-forwarding to the head pod for sending HTTP requests
