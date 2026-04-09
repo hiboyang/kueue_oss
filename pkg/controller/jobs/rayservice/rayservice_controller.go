@@ -74,7 +74,7 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices/finalizers,verbs=get;update
-// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch
 
 type rayServiceReconciler struct {
 	jr     *jobframework.JobReconciler
@@ -172,12 +172,30 @@ func (j *RayService) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 }
 
 func (j *RayService) RunWithPodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) error {
+	log := ctrl.LoggerFrom(ctx)
 	expectedLen := len(j.Spec.RayClusterSpec.WorkerGroupSpecs) + 1
 	if len(podSetsInfo) != expectedLen {
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
 	j.Spec.RayClusterSpec.Suspend = ptr.To(false)
+
+	// Also unsuspend the child RayCluster if it already exists, due to KubeRay issue:
+	// https://github.com/ray-project/kuberay/issues/4686
+	rayClusterName := j.Status.PendingServiceStatus.RayClusterName
+	if rayClusterName != "" && reconciler.client != nil {
+		rayCluster := &rayv1.RayCluster{}
+		if err := reconciler.client.Get(ctx, client.ObjectKey{Namespace: j.Namespace, Name: rayClusterName}, rayCluster); err == nil {
+			if rayCluster.Spec.Suspend != nil && *rayCluster.Spec.Suspend {
+				rayCluster.Spec.Suspend = ptr.To(false)
+				if err := reconciler.client.Update(ctx, rayCluster); err != nil {
+					log.Error(err, "Failed to unsuspend child RayCluster", "rayCluster", rayClusterName)
+				} else {
+					log.V(3).Info("Unsuspended child RayCluster", "rayCluster", rayClusterName)
+				}
+			}
+		}
+	}
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(rayClusterSpec, podSetsInfo)
