@@ -1275,11 +1275,6 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
-		if jobWithCustomStart, implements := job.(JobWithCustomStart); implements {
-			if err := jobWithCustomStart.StartJob(ctx, r.client, info); err != nil {
-				return err
-			}
-		}
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
 			return true, job.RunWithPodSetsInfo(ctx, info)
 		}); err != nil {

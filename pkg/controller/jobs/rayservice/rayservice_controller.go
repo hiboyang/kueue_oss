@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -74,7 +73,7 @@ func init() {
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=ray.io,resources=rayservices/finalizers,verbs=get;update
-// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch
 
 type rayServiceReconciler struct {
 	jr     *jobframework.JobReconciler
@@ -127,7 +126,6 @@ var _ jobframework.GenericJob = (*RayService)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
-var _ jobframework.JobWithCustomStart = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -231,43 +229,6 @@ func (j *RayService) GetCustomAnnotations(ctx context.Context, c client.Client, 
 
 func (j *RayService) GetWorkloadNameExtraPart() string {
 	return raycluster.GetWorkloadNameExtraPart(j.GetObjectMeta())
-}
-
-func (j *RayService) StartJob(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// First, patch the RayService itself (sets Suspend=false and updates pod templates).
-	err := clientutil.Patch(ctx, c, j.Object(), func() (bool, error) {
-		return true, j.RunWithPodSetsInfo(ctx, podSetsInfo)
-	})
-	if err != nil {
-		return err
-	}
-
-	// Also apply the same changes to the child RayCluster if it already exists.
-	// KubeRay creates the child RayCluster from the RayService spec, but due to a race
-	// condition it may have been created before Kueue unsuspended the RayService. In that
-	// case the child RayCluster has Suspend=true and stale pod templates (missing Kueue
-	// annotations/labels). KubeRay's RayService controller cannot propagate the update
-	// due to https://github.com/ray-project/kuberay/issues/4686, so we update it directly.
-	rayClusterName := j.Status.PendingServiceStatus.RayClusterName
-	if rayClusterName == "" {
-		return nil
-	}
-	rayCluster := &rayv1.RayCluster{}
-	if err := c.Get(ctx, client.ObjectKey{Namespace: j.Namespace, Name: rayClusterName}, rayCluster); err != nil {
-		// If the RayCluster doesn't exist yet, nothing to do.
-		return client.IgnoreNotFound(err)
-	}
-	if err := clientutil.Patch(ctx, c, rayCluster, func() (bool, error) {
-		rayCluster.Spec.Suspend = ptr.To(false)
-		return true, raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(&rayCluster.Spec, podSetsInfo)
-	}); err != nil {
-		log.Error(err, "Failed to update child RayCluster", "rayCluster", rayClusterName)
-		return err
-	}
-	log.V(3).Info("Updated child RayCluster with pod sets info", "rayCluster", rayClusterName)
-	return nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

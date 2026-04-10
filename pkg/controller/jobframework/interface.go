@@ -184,12 +184,6 @@ type ElasticWorkloadNameProvider interface {
 	GetWorkloadNameExtraPart() string
 }
 
-// JobWithCustomStart interface provides customize logic to start a job.
-type JobWithCustomStart interface {
-	// StartJob starts the job
-	StartJob(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo) error
-}
-
 // TopLevelJob interface is an optional interface used to indicate
 // that the Job owns/manages the Workload object, regardless of the Job
 // owner references.
