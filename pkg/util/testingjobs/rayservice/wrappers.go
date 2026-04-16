@@ -257,10 +257,9 @@ func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 
 // EnableInTreeAutoscaling enables in-tree autoscaling on the RayService.
 func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
-	enable := true
 	aggressive := rayv1.UpscalingMode("Aggressive")
 	idleTimeoutSeconds := int32(5)
-	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = &enable
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = ptr.To(true)
 	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
 		UpscalingMode:      &aggressive,
 		IdleTimeoutSeconds: &idleTimeoutSeconds,
