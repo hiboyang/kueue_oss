@@ -182,7 +182,7 @@ func (j *RayJob) PodSets(ctx context.Context) ([]kueue.PodSet, error) {
 	}
 
 	rayClusterName := j.Status.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName, j.Spec.ManagedBy)
 	if err != nil {
 		return nil, err
 	}
