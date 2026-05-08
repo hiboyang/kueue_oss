@@ -1393,13 +1393,17 @@ print(ray.get([my_task.remote(i, 120) for i in range(3)]))`,
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayJob %s/%s is admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorker))
 
 				replacementWlName := ""
-				ginkgo.By("Checking RayJob autoscaling state is synced back to the manager", func() {
-					workerClient := kubernetesClients[admittedWorker].client
+				workerClient := kubernetesClients[admittedWorker].client
+				ginkgo.By("Checking RayJob is created in the admitted worker", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerRayJob := &rayv1.RayJob{}
 						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayjob), workerRayJob)).To(gomega.Succeed())
 						g.Expect(workerRayJob.Labels).To(gomega.HaveKey(constants.PrebuiltWorkloadLabel))
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
 
+				ginkgo.By("Checking RayJob autoscaling state is synced back to the manager", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
 						workloads := &kueue.WorkloadList{}
 						g.Expect(k8sManagerClient.List(ctx, workloads, client.InNamespace(managerNs.Name))).To(gomega.Succeed())
 						replacementWlName = ""

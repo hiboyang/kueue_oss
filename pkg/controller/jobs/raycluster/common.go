@@ -374,7 +374,7 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 	if workloadslicing.Enabled(jobObject) {
 		log := ctrl.LoggerFrom(ctx)
 
-		rayClusterGeneration := ""
+		rayClusterGeneration := jobObject.GetAnnotations()[RayClusterGenerationAnnotation]
 
 		var rayClusterObj rayv1.RayCluster
 		err := c.Get(ctx, types.NamespacedName{
