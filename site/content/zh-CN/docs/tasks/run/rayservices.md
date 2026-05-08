@@ -72,7 +72,6 @@ spec:
 ### c. 限制事项 {#c-limitations}
 - 有限的 Worker Group：由于 Kueue 工作负载最多可以有 8 个 PodSet,
   所以`spec.rayClusterConfig.workerGroupSpecs` 的最大数量为 7。
-- 内建自动扩缩禁用：Kueue 管理 RayService 的资源分配，因此，集群的内部自动扩缩机制需要禁用。
 
 ## RayService 示例{#example-rayservice}
 

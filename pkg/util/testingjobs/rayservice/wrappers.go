@@ -253,3 +253,27 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	j.Spec.RayClusterSpec.RayVersion = rv
 	return j
 }
+
+// ManagedBy sets the ManagedBy field on the RayService spec.
+func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
+	j.Spec.ManagedBy = &c
+	return j
+}
+
+// EnableInTreeAutoscaling enables in-tree autoscaling on the RayService.
+func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
+	aggressive := rayv1.UpscalingMode("Aggressive")
+	idleTimeoutSeconds := int32(5)
+	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = ptr.To(true)
+	j.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
+		UpscalingMode:      &aggressive,
+		IdleTimeoutSeconds: &idleTimeoutSeconds,
+	}
+	return j
+}
+
+// StatusConditions adds a condition to the RayService status.
+func (j *ServiceWrapper) StatusConditions(c metav1.Condition) *ServiceWrapper {
+	j.Status.Conditions = append(j.Status.Conditions, c)
+	return j
+}
