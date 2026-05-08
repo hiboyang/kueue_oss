@@ -35,7 +35,15 @@ import (
 )
 
 // Duplicated here to avoid a circular import with raycluster package.
-const rayclusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
+const (
+	rayclusterPodsetReplicaSizesAnnotation = "kueue.x-k8s.io/raycluster-podset-replica-sizes"
+	rayclusterGenerationAnnotation         = "kueue.x-k8s.io/raycluster-generation"
+)
+
+var rayclusterAutoscalingAnnotations = []string{
+	rayclusterGenerationAnnotation,
+	rayclusterPodsetReplicaSizesAnnotation,
+}
 
 type objAsPtr[T any] interface {
 	metav1.Object
@@ -125,9 +133,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 			return err
 		}
 
-		// Sync podset-replica-sizes annotation from remote to local so the
+		// Sync Ray autoscaling annotations from remote to local so the
 		// management cluster can monitor autoscaling events on the worker.
-		if err := syncPodSetReplicaSizesAnnotation(ctx, localClient, localJob, remoteJob); err != nil {
+		if err := syncAutoscalingAnnotations(ctx, localClient, localJob, remoteJob); err != nil {
 			return err
 		}
 
@@ -192,14 +200,21 @@ func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.Namespaced
 	return []types.NamespacedName{{Name: prebuiltWl, Namespace: job.GetNamespace()}}, nil
 }
 
-// syncPodSetReplicaSizesAnnotation syncs the podset-replica-sizes annotation
-// from a remote job to a local job. This allows the management cluster to
-// monitor autoscaling state changes that occur on the worker cluster.
-func syncPodSetReplicaSizesAnnotation(ctx context.Context, localClient client.Client, localJob, remoteJob metav1.Object) error {
-	remoteAnnotation := remoteJob.GetAnnotations()[rayclusterPodsetReplicaSizesAnnotation]
-	localAnnotation := localJob.GetAnnotations()[rayclusterPodsetReplicaSizesAnnotation]
+// syncAutoscalingAnnotations syncs Ray autoscaling annotations from a remote
+// job to a local job. This allows the management cluster to monitor autoscaling
+// state changes that occur on the worker cluster.
+func syncAutoscalingAnnotations(ctx context.Context, localClient client.Client, localJob, remoteJob metav1.Object) error {
+	remoteAnnotations := remoteJob.GetAnnotations()
+	localAnnotations := localJob.GetAnnotations()
 
-	if remoteAnnotation == localAnnotation {
+	needsPatch := false
+	for _, annotationKey := range rayclusterAutoscalingAnnotations {
+		if remoteAnnotations[annotationKey] != localAnnotations[annotationKey] {
+			needsPatch = true
+			break
+		}
+	}
+	if !needsPatch {
 		return nil
 	}
 
@@ -208,10 +223,12 @@ func syncPodSetReplicaSizesAnnotation(ctx context.Context, localClient client.Cl
 		if annotations == nil {
 			annotations = make(map[string]string)
 		}
-		if remoteAnnotation == "" {
-			delete(annotations, rayclusterPodsetReplicaSizesAnnotation)
-		} else {
-			annotations[rayclusterPodsetReplicaSizesAnnotation] = remoteAnnotation
+		for _, annotationKey := range rayclusterAutoscalingAnnotations {
+			if remoteAnnotation := remoteAnnotations[annotationKey]; remoteAnnotation == "" {
+				delete(annotations, annotationKey)
+			} else {
+				annotations[annotationKey] = remoteAnnotation
+			}
 		}
 		localJob.SetAnnotations(annotations)
 		return true, nil

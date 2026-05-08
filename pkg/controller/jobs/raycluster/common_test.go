@@ -362,9 +362,9 @@ func TestUpdatePodSets(t *testing.T) {
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
 				SetAnnotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"head","count":1},{"name":"workers-group-0","count":5}]`).
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			managedBy:               ptr.To(kueue.MultiKueueControllerName),
 			rayClusterName:          "nonexistent-raycluster",
 			wantPodSets: []kueue.PodSet{
@@ -379,9 +379,9 @@ func TestUpdatePodSets(t *testing.T) {
 			},
 			object: testingrayutil.MakeCluster("raycluster", "ns").
 				SetAnnotation("kueue.x-k8s.io/elastic-job", "true").
-				WithEnableAutoscaling(ptr.To(true)).
+				WithEnableAutoscaling(new(true)).
 				Obj(),
-			enableInTreeAutoscaling: ptr.To(true),
+			enableInTreeAutoscaling: new(true),
 			managedBy:               ptr.To(kueue.MultiKueueControllerName),
 			rayClusterName:          "nonexistent-raycluster",
 			wantPodSets: []kueue.PodSet{

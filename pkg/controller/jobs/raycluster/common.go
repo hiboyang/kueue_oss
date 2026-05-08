@@ -100,7 +100,15 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec) ([]kueue.PodSet, error) 
 	return podSets, nil
 }
 
-func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client, object client.Object, enableInTreeAutoscaling *bool, rayClusterName string, managedBy *string) ([]kueue.PodSet, error) {
+func UpdatePodSets(
+	ctx context.Context,
+	podSets []kueue.PodSet,
+	c client.Client,
+	object client.Object,
+	enableInTreeAutoscaling *bool,
+	rayClusterName string,
+	managedBy *string,
+) ([]kueue.PodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Only update podSets from RayCluster if:
