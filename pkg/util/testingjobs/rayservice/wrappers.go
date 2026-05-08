@@ -254,12 +254,6 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	return j
 }
 
-// ManagedBy sets the ManagedBy field on the RayService spec.
-func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
-	j.Spec.ManagedBy = &c
-	return j
-}
-
 // EnableInTreeAutoscaling enables in-tree autoscaling on the RayService.
 func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
 	aggressive := rayv1.UpscalingMode("Aggressive")
