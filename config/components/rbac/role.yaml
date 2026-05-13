@@ -348,6 +348,7 @@ rules:
   - deviceclasses
   - resourceclaims
   - resourceclaimtemplates
+  - resourceslices
   verbs:
   - get
   - list
