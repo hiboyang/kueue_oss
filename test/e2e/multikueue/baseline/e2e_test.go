@@ -1322,10 +1322,10 @@ def my_task(x, s):
     time.sleep(s)
     return x * x
 
-# 3 parallel tasks with 120s sleep: triggers scale-up to 2 workers
+# 3 parallel tasks with 60s sleep: triggers scale-up to 2 workers
 # (1 task on head + 2 on workers) and keeps them alive through
 # pod replacement verification.
-print(ray.get([my_task.remote(i, 120) for i in range(3)]))`,
+print(ray.get([my_task.remote(i, 60) for i in range(3)]))`,
 					},
 				}
 
@@ -1356,7 +1356,7 @@ print(ray.get([my_task.remote(i, 120) for i in range(3)]))`,
 					WithSubmissionMode(rayv1.K8sJobMode).
 					Entrypoint("python /home/ray/samples/sample_code.py").
 					RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
-					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "0.5").
+					RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "200m").
 					Image(rayv1.HeadNode, kuberayTestImage).
 					Image(rayv1.WorkerNode, kuberayTestImage).
 					Volumes(rayv1.HeadNode, volumes).
@@ -1391,8 +1391,25 @@ print(ray.get([my_task.remote(i, 120) for i in range(3)]))`,
 				admittedWorker := ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayJob %s/%s is admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorker))
 
-				replacementWlName := ""
 				workerClient := kubernetesClients[admittedWorker].client
+
+				getRunningWorkerPodNames := func(g gomega.Gomega) []string {
+					pods := &corev1.PodList{}
+					g.Expect(workerClient.List(ctx, pods,
+						client.InNamespace(managerNs.Name),
+						client.MatchingLabels{
+							"ray.io/node-type": "worker",
+						},
+					)).To(gomega.Succeed())
+					var podNames []string
+					for _, pod := range pods.Items {
+						if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
+							podNames = append(podNames, pod.Name)
+						}
+					}
+					return podNames
+				}
+
 				ginkgo.By("Checking RayJob is created in the admitted worker", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerRayJob := &rayv1.RayJob{}
@@ -1401,6 +1418,14 @@ print(ray.get([my_task.remote(i, 120) for i in range(3)]))`,
 					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
+				ginkgo.By("Waiting for all 2 worker pods to be running on the worker cluster", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						runningWorkers := getRunningWorkerPodNames(g)
+						g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
+					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				replacementWlName := ""
 				ginkgo.By("Checking RayJob autoscaling state is synced back to the manager", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workloads := &kueue.WorkloadList{}
